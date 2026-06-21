@@ -1,12 +1,13 @@
 import express from 'express';
 import multer from 'multer';
 import fs from 'fs';
+import os from 'os';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import Submission from '../models/Submission.js';
 import Task from '../models/Task.js';
 import cloudinary from '../config/cloudinary.js';
 
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ dest: os.tmpdir() });
 const router = express.Router();
 
 router.get('/', requireAuth, async (req, res) => {

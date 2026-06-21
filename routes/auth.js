@@ -2,13 +2,14 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import fs from 'fs';
+import os from 'os';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import Batch from '../models/Batch.js';
 import User from '../models/User.js';
 import Leetcode from '../models/Leetcode.js';
 import cloudinary from '../config/cloudinary.js';
 
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ dest: os.tmpdir() });
 
 const router = express.Router();
 
