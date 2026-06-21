@@ -27,6 +27,7 @@ const configuredOrigins = (process.env.CLIENT_URL || '')
 function isAllowedOrigin(origin) {
   if (!origin) return true;
   if (configuredOrigins.includes(origin)) return true;
+  if (/^https:\/\/lms-eth-mits-ui[-.a-z0-9]*\.vercel\.app$/.test(origin)) return true;
   return /^http:\/\/(127\.0\.0\.1|localhost):517\d$/.test(origin);
 }
 
@@ -45,6 +46,12 @@ const io = new Server(server, {
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '2mb' }));
 app.use('/uploads', express.static('uploads'));
+
+// Ensure DB is connected before handling any request (Vercel cold-start safety)
+app.use(async (_req, _res, next) => {
+  try { await connectDatabase(); } catch (e) { /* already logged */ }
+  next();
+});
 
 app.get('/api/health', (_req, res) => {
   res.json({
@@ -76,19 +83,23 @@ io.on('connection', (socket) => {
   socket.on('join-quiz', (quizId) => socket.join(`quiz:${quizId}`));
 });
 
-connectDatabase()
-  .then(() => {
-    const port = process.env.PORT || 5000;
-    server.on('error', (error) => {
-      if (error.code === 'EADDRINUSE') {
-        console.error(`Port ${port} is already in use. Stop the old LMS server or set a different PORT in .env.`);
-        process.exit(1);
-      }
-      throw error;
-    });
-    server.listen(port, () => console.log(`LMS API running on http://127.0.0.1:${port}`));
-  })
-  .catch((error) => {
-    console.error('Failed to start API:', error.message);
-    process.exit(1);
+// Connect to DB eagerly (Vercel serverless cold-starts will await this)
+connectDatabase().catch((error) => {
+  console.error('Failed to connect to database:', error.message);
+});
+
+// Only listen when running locally (not on Vercel)
+if (!process.env.VERCEL) {
+  const port = process.env.PORT || 5000;
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(`Port ${port} is already in use. Stop the old LMS server or set a different PORT in .env.`);
+      process.exit(1);
+    }
+    throw error;
   });
+  server.listen(port, () => console.log(`LMS API running on http://127.0.0.1:${port}`));
+}
+
+// Export for Vercel serverless
+export default app;
