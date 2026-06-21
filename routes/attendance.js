@@ -20,10 +20,65 @@ async function approvedLeaveHours(student, dateKey) {
   return leave.type === 'hourly' ? leave.hours : 8;
 }
 
+async function autoCheckOutPending(studentId) {
+  const today = todayKey();
+  const pendingRecords = await Attendance.find({
+    student: studentId,
+    checkIn: { $exists: true },
+    checkOut: null,
+    date: { $ne: today }
+  });
+
+  for (const record of pendingRecords) {
+    const checkInTime = new Date(record.checkIn);
+    const autoCheckOutTime = new Date(checkInTime);
+    autoCheckOutTime.setUTCHours(11, 30, 0, 0); // 5:00 PM IST (11:30 AM UTC)
+
+    if (autoCheckOutTime.getTime() < checkInTime.getTime()) {
+      record.checkOut = checkInTime;
+    } else {
+      record.checkOut = autoCheckOutTime;
+    }
+
+    record.totalHours = hoursBetween(record.checkIn, record.checkOut);
+    record.checkInStatus = record.totalHours >= 8 ? 'present' : 'absent';
+    await record.save();
+  }
+}
+
+async function autoCheckOutAllPending() {
+  const today = todayKey();
+  const pendingRecords = await Attendance.find({
+    checkIn: { $exists: true },
+    checkOut: null,
+    date: { $ne: today }
+  });
+
+  for (const record of pendingRecords) {
+    const checkInTime = new Date(record.checkIn);
+    const autoCheckOutTime = new Date(checkInTime);
+    autoCheckOutTime.setUTCHours(11, 30, 0, 0); // 5:00 PM IST
+
+    if (autoCheckOutTime.getTime() < checkInTime.getTime()) {
+      record.checkOut = checkInTime;
+    } else {
+      record.checkOut = autoCheckOutTime;
+    }
+
+    record.totalHours = hoursBetween(record.checkIn, record.checkOut);
+    record.checkInStatus = record.totalHours >= 8 ? 'present' : 'absent';
+    await record.save();
+  }
+}
+
 router.post('/check-in', requireAuth, requireRole('student'), async (req, res) => {
+  await autoCheckOutPending(req.user._id);
+
   const now = new Date();
-  if (now.getHours() < 9) {
-    return res.status(400).json({ message: 'Check-in is only allowed after 9:00 AM' });
+  const istHourStr = now.toLocaleTimeString('en-US', { timeZone: 'Asia/Kolkata', hour12: false, hour: 'numeric' });
+  const istHour = Number(istHourStr);
+  if (istHour < 9 || istHour >= 17) {
+    return res.status(400).json({ message: 'Check-in is only allowed between 9:00 AM and 5:00 PM IST' });
   }
 
   const date = todayKey();
@@ -55,10 +110,12 @@ router.post('/check-out', requireAuth, requireRole('student'), async (_req, res)
 });
 
 router.get('/mine', requireAuth, requireRole('student'), async (req, res) => {
+  await autoCheckOutPending(req.user._id);
   res.json(await Attendance.find({ student: req.user._id }).sort('-date').limit(60));
 });
 
 router.get('/logs', requireAuth, requireRole('admin'), async (req, res) => {
+  await autoCheckOutAllPending();
   const date = req.query.date || todayKey();
   const match = req.query.batch ? { batch: req.query.batch, role: 'student' } : { role: 'student' };
   const students = await User.find(match).populate('batch').select('-password').sort('name');
