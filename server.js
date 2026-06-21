@@ -46,6 +46,13 @@ app.use(async (_req, _res, next) => {
   next();
 });
 
+app.get('/', (_req, res) => {
+  res.json({
+    message: 'MITS LMS API is running successfully',
+    health: '/api/health'
+  });
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
