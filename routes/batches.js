@@ -73,15 +73,20 @@ router.post('/:id/students', requireAuth, requireRole('admin'), async (req, res)
     const batch = await Batch.findById(req.params.id);
     if (!batch) return res.status(404).json({ message: 'Batch not found' });
 
+    // Validate unique email check manually to avoid database error
+    const exists = await User.findOne({ email: email.trim().toLowerCase() });
+    if (exists) return res.status(400).json({ message: 'Email is already registered' });
+
     const user = await User.create({
-      name,
-      email,
-      password: 'mits123',
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      password: 'mits@3!',
       role: 'student',
-      rollNumber,
-      phone,
+      rollNumber: rollNumber?.trim(),
+      phone: phone?.trim(),
       batch: batch._id,
-      isApproved: true
+      isApproved: true,
+      mustChangePassword: true
     });
 
     batch.students.addToSet(user._id);
@@ -109,27 +114,81 @@ router.delete('/:id/students/:studentId', requireAuth, requireRole('admin'), asy
   }
 });
 
-router.post('/:id/students/bulk', requireAuth, requireRole('admin'), async (req, res) => {
+router.post('/:id/students/validate-import', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const { students } = req.body;
+    const validated = [];
+    const emailsInSheet = new Set();
+    const rollsInSheet = new Set();
+
+    for (const s of students) {
+      const email = s.email?.trim().toLowerCase();
+      const rollNumber = s.rollNumber?.trim().toUpperCase();
+      let error = null;
+
+      if (!s.name?.trim()) {
+        error = 'Name is required';
+      } else if (!email) {
+        error = 'Email is required';
+      } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        error = 'Invalid email format';
+      } else if (emailsInSheet.has(email)) {
+        error = 'Duplicate email in sheet';
+      } else if (rollNumber && rollsInSheet.has(rollNumber)) {
+        error = 'Duplicate roll number in sheet';
+      } else {
+        const emailExists = await User.findOne({ email });
+        if (emailExists) {
+          error = 'Email is already registered';
+        } else if (rollNumber) {
+          const rollExists = await User.findOne({ rollNumber });
+          if (rollExists) {
+            error = 'Roll number is already registered';
+          }
+        }
+      }
+
+      if (email) emailsInSheet.add(email);
+      if (rollNumber) rollsInSheet.add(rollNumber);
+
+      validated.push({
+        name: s.name?.trim() || '',
+        email: s.email?.trim() || '',
+        rollNumber: s.rollNumber?.trim() || '',
+        phone: s.phone?.trim() || '',
+        isValid: !error,
+        error
+      });
+    }
+
+    res.json(validated);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.post('/:id/students/bulk', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { students, defaultPassword = 'mits@3!' } = req.body;
     const batch = await Batch.findById(req.params.id);
     if (!batch) return res.status(404).json({ message: 'Batch not found' });
 
     const createdUsers = [];
     for (const s of students) {
-      // Validate unique email check manually to avoid crashing on duplicate
-      const exists = await User.findOne({ email: s.email });
-      if (exists) continue; // Skip duplicates for a smoother import
-      
+      const email = s.email?.trim().toLowerCase();
+      const exists = await User.findOne({ email });
+      if (exists) continue; // Skip duplicates for security
+
       const user = await User.create({
-        name: s.name,
-        email: s.email,
-        password: 'mits123',
+        name: s.name.trim(),
+        email,
+        password: defaultPassword,
         role: 'student',
-        rollNumber: s.rollNumber,
-        phone: s.phone,
+        rollNumber: s.rollNumber?.trim(),
+        phone: s.phone?.trim(),
         batch: batch._id,
-        isApproved: true
+        isApproved: true,
+        mustChangePassword: true
       });
       createdUsers.push(user);
       batch.students.addToSet(user._id);

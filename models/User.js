@@ -32,6 +32,7 @@ const userSchema = new mongoose.Schema(
     },
     isApproved: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
+    mustChangePassword: { type: Boolean, default: false },
     lastActiveAt: { type: Date, default: Date.now }
   },
   { timestamps: true }

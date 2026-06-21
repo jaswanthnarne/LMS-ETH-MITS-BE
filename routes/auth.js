@@ -261,6 +261,7 @@ router.post('/change-password', requireAuth, async (req, res) => {
       return res.status(401).json({ message: 'Incorrect current password' });
     }
     user.password = newPassword;
+    user.mustChangePassword = false;
     await user.save();
     res.json({ message: 'Password updated successfully' });
   } catch (error) {
