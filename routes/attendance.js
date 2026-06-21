@@ -1,0 +1,177 @@
+import express from 'express';
+import { requireAuth, requireRole } from '../middleware/auth.js';
+import Attendance from '../models/Attendance.js';
+import Leave from '../models/Leave.js';
+import User from '../models/User.js';
+import { attendanceStatus, hoursBetween, todayKey } from '../utils/dates.js';
+
+const router = express.Router();
+
+async function approvedLeaveHours(student, dateKey) {
+  const day = new Date(`${dateKey}T00:00:00.000Z`);
+  const leave = await Leave.findOne({
+    student,
+    status: 'approved',
+    fromDate: { $lte: day },
+    $or: [{ toDate: { $gte: day } }, { toDate: null }, { toDate: { $exists: false } }]
+  });
+
+  if (!leave) return 0;
+  return leave.type === 'hourly' ? leave.hours : 8;
+}
+
+router.post('/check-in', requireAuth, requireRole('student'), async (req, res) => {
+  const now = new Date();
+  if (now.getHours() < 9) {
+    return res.status(400).json({ message: 'Check-in is only allowed after 9:00 AM' });
+  }
+
+  const date = todayKey();
+  const leaveHours = await approvedLeaveHours(req.user._id, date);
+  if (leaveHours >= 8) return res.status(409).json({ message: 'Full-day leave is approved for today' });
+
+  const record = await Attendance.findOneAndUpdate(
+    { student: req.user._id, date },
+    {
+      $setOnInsert: { batch: req.user.batch, approvedLeaveHours: leaveHours },
+      checkIn: now,
+      checkInStatus: 'checked-in'
+    },
+    { upsert: true, new: true }
+  );
+  res.json(record);
+});
+
+router.post('/check-out', requireAuth, requireRole('student'), async (_req, res) => {
+  const date = todayKey();
+  const record = await Attendance.findOne({ student: _req.user._id, date });
+  if (!record?.checkIn) return res.status(409).json({ message: 'Check in before checking out' });
+
+  record.checkOut = new Date();
+  record.totalHours = hoursBetween(record.checkIn, record.checkOut);
+  record.checkInStatus = record.totalHours >= 8 ? 'present' : 'absent';
+  await record.save();
+  res.json(record);
+});
+
+router.get('/mine', requireAuth, requireRole('student'), async (req, res) => {
+  res.json(await Attendance.find({ student: req.user._id }).sort('-date').limit(60));
+});
+
+router.get('/logs', requireAuth, requireRole('admin'), async (req, res) => {
+  const date = req.query.date || todayKey();
+  const match = req.query.batch ? { batch: req.query.batch, role: 'student' } : { role: 'student' };
+  const students = await User.find(match).populate('batch').select('-password').sort('name');
+  const records = await Attendance.find({ date, student: { $in: students.map((student) => student._id) } });
+  const byStudent = new Map(records.map((record) => [String(record.student), record]));
+
+  const day = new Date(`${date}T00:00:00.000Z`);
+  const leaves = await Leave.find({
+    student: { $in: students.map((s) => s._id) },
+    status: 'approved',
+    fromDate: { $lte: day },
+    $or: [{ toDate: { $gte: day } }, { toDate: null }, { toDate: { $exists: false } }]
+  });
+  const leavesByStudent = new Map(leaves.map((l) => [String(l.student), l]));
+
+  res.json(
+    students.map((student) => {
+      const record = byStudent.get(String(student._id));
+      const leave = leavesByStudent.get(String(student._id));
+      
+      let attendance = record;
+      if (!attendance) {
+        let status = 'Ab';
+        let checkInStatus = 'waiting';
+        let approvedLeaveHrs = 0;
+        if (leave) {
+          if (leave.type === 'hourly') {
+            approvedLeaveHrs = leave.hours;
+          } else {
+            status = 'L';
+            approvedLeaveHrs = 8;
+          }
+        }
+        attendance = {
+          date,
+          status,
+          checkInStatus,
+          checkIn: null,
+          checkOut: null,
+          totalHours: 0,
+          approvedLeaveHours: approvedLeaveHrs
+        };
+      }
+      return { student, attendance };
+    })
+  );
+});
+
+router.post('/bulk', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { date, batchId, records } = req.body;
+    const targetDate = date || todayKey();
+    const updated = [];
+    for (const record of records) {
+      const payload = {
+        batch: batchId,
+        status: record.status,
+        totalHours: record.totalHours || 0
+      };
+      
+      if (record.checkIn) payload.checkIn = new Date(record.checkIn);
+      if (record.checkOut) payload.checkOut = new Date(record.checkOut);
+      
+      if ((record.status === 'present' || record.status === 'partial' || record.status === 'checked in') && !payload.checkIn) {
+        payload.checkIn = new Date(`${targetDate}T09:00:00.000Z`);
+        if (record.status === 'present') {
+          payload.checkOut = new Date(`${targetDate}T17:00:00.000Z`);
+          payload.totalHours = 8;
+        } else if (record.status === 'partial') {
+          payload.checkOut = new Date(`${targetDate}T13:00:00.000Z`);
+          payload.totalHours = 4;
+        }
+      }
+      
+      const attendance = await Attendance.findOneAndUpdate(
+        { student: record.studentId, date: targetDate },
+        payload,
+        { upsert: true, new: true }
+      );
+      updated.push(attendance);
+    }
+    res.json(updated);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.post('/reset', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { studentId, date } = req.body;
+    const record = await Attendance.findOneAndUpdate(
+      { student: studentId, date },
+      {
+        checkIn: null,
+        checkOut: null,
+        totalHours: 0,
+        checkInStatus: 'waiting'
+      },
+      { new: true }
+    );
+    res.json({ message: 'Check-in data reset successfully', record });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    await Attendance.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Attendance record deleted successfully' });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+export default router;
