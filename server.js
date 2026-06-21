@@ -25,6 +25,7 @@ function isAllowedOrigin(origin) {
   if (!origin) return true;
   if (configuredOrigins.includes(origin)) return true;
   if (/^https:\/\/lms-eth-mits-ui[-.a-z0-9]*\.vercel\.app$/.test(origin)) return true;
+  if (origin === 'https://clmsmits.jaswanthnarne.online') return true;
   return /^http:\/\/(127\.0\.0\.1|localhost):517\d$/.test(origin);
 }
 
