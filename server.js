@@ -1,8 +1,6 @@
 import cors from 'cors';
 import dotenv from 'dotenv';
 import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
 import { connectDatabase } from './config/db.js';
 import analyticsRoutes from './routes/analytics.js';
 import attendanceRoutes from './routes/attendance.js';
@@ -18,7 +16,6 @@ import collegeRoutes from './routes/colleges.js';
 dotenv.config();
 
 const app = express();
-const server = http.createServer(app);
 const configuredOrigins = (process.env.CLIENT_URL || '')
   .split(',')
   .map((origin) => origin.trim())
@@ -38,10 +35,6 @@ const corsOptions = {
   },
   credentials: true
 };
-
-const io = new Server(server, {
-  cors: corsOptions
-});
 
 app.use(cors(corsOptions));
 app.use(express.json({ limit: '2mb' }));
@@ -73,32 +66,36 @@ app.use('/api/analytics', analyticsRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/colleges', collegeRoutes);
 
-io.on('connection', (socket) => {
-  socket.on('join-batch', (batchId) => socket.join(`batch:${batchId}`));
-  socket.on('batch-message', (payload) => io.to(`batch:${payload.batch}`).emit('batch-message', payload));
-  socket.on('delete-message', (payload) => io.to(`batch:${payload.batch}`).emit('delete-message', payload));
-  socket.on('edit-message', (payload) => io.to(`batch:${payload.batch}`).emit('edit-message', payload));
-  socket.on('quiz-host-update', (payload) => io.to(`batch:${payload.batch}`).emit('quiz-update', payload));
-  socket.on('quiz-answer', (payload) => io.to(`quiz:${payload.quiz}`).emit('quiz-answer', payload));
-  socket.on('join-quiz', (quizId) => socket.join(`quiz:${quizId}`));
-});
-
-// Connect to DB eagerly (Vercel serverless cold-starts will await this)
-connectDatabase().catch((error) => {
-  console.error('Failed to connect to database:', error.message);
-});
-
-// Only listen when running locally (not on Vercel)
+// Socket.io only works locally (Vercel serverless does NOT support WebSockets)
 if (!process.env.VERCEL) {
-  const port = process.env.PORT || 5000;
-  server.on('error', (error) => {
-    if (error.code === 'EADDRINUSE') {
-      console.error(`Port ${port} is already in use. Stop the old LMS server or set a different PORT in .env.`);
-      process.exit(1);
-    }
-    throw error;
+  import('http').then(({ default: http }) => {
+    import('socket.io').then(({ Server }) => {
+      const server = http.createServer(app);
+      const io = new Server(server, { cors: corsOptions });
+
+      io.on('connection', (socket) => {
+        socket.on('join-batch', (batchId) => socket.join(`batch:${batchId}`));
+        socket.on('batch-message', (payload) => io.to(`batch:${payload.batch}`).emit('batch-message', payload));
+        socket.on('delete-message', (payload) => io.to(`batch:${payload.batch}`).emit('delete-message', payload));
+        socket.on('edit-message', (payload) => io.to(`batch:${payload.batch}`).emit('edit-message', payload));
+        socket.on('quiz-host-update', (payload) => io.to(`batch:${payload.batch}`).emit('quiz-update', payload));
+        socket.on('quiz-answer', (payload) => io.to(`quiz:${payload.quiz}`).emit('quiz-answer', payload));
+        socket.on('join-quiz', (quizId) => socket.join(`quiz:${quizId}`));
+      });
+
+      connectDatabase().then(() => {
+        const port = process.env.PORT || 5000;
+        server.on('error', (error) => {
+          if (error.code === 'EADDRINUSE') {
+            console.error(`Port ${port} is already in use.`);
+            process.exit(1);
+          }
+          throw error;
+        });
+        server.listen(port, () => console.log(`LMS API running on http://127.0.0.1:${port}`));
+      });
+    });
   });
-  server.listen(port, () => console.log(`LMS API running on http://127.0.0.1:${port}`));
 }
 
 // Export for Vercel serverless
