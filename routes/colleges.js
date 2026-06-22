@@ -18,7 +18,21 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
     if (!name || !code) {
       return res.status(400).json({ message: 'College name and code are required' });
     }
-    const college = await College.create({ name, code });
+    
+    const cleanName = name.trim();
+    const cleanCode = code.trim().toUpperCase();
+
+    const codeExists = await College.findOne({ code: cleanCode });
+    if (codeExists) {
+      return res.status(400).json({ message: `College code "${cleanCode}" is already registered` });
+    }
+
+    const nameExists = await College.findOne({ name: { $regex: new RegExp(`^${cleanName}$`, 'i') } });
+    if (nameExists) {
+      return res.status(400).json({ message: `College name "${cleanName}" is already registered` });
+    }
+
+    const college = await College.create({ name: cleanName, code: cleanCode });
     res.status(201).json(college);
   } catch (error) {
     res.status(400).json({ message: error.message });
