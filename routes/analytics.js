@@ -9,7 +9,7 @@ import Task from '../models/Task.js';
 import User from '../models/User.js';
 import LeetcodeProblem from '../models/LeetcodeProblem.js';
 import LeetcodeSubmission from '../models/LeetcodeSubmission.js';
-import { todayKey } from '../utils/dates.js';
+import { todayKey, calculateStreak, getISTDateString } from '../utils/dates.js';
 
 const router = express.Router();
 
@@ -89,63 +89,20 @@ router.get('/leaderboard', requireAuth, async (req, res) => {
       const checkedInDays = data.attendance.filter(a => a.status === 'P').length;
       const attendanceMarks = checkedInDays * 10;
 
-      // A2. Check-In Marks (based on hours check-in: >= 7.5 hrs = 10 pts, < 3 hrs = 0 pts, in between proportional)
+      // A2. Check-In Marks (based on hours check-in: 10 pts if duration between check-in and check-out is >= 8 hrs)
       let checkInMarks = 0;
       data.attendance.forEach(a => {
-        const hours = a.totalHours || 0;
-        if (hours >= 7.5) {
+        if (a.checkIn && a.checkOut && (a.totalHours || 0) >= 8) {
           checkInMarks += 10;
-        } else if (hours >= 3) {
-          checkInMarks += Math.round(((hours - 3) / 4.5) * 10);
         }
       });
 
-      // B. Leetcode scores & streaks (only on-time accepted count for streak)
-      const onTimeLeetcodeSubs = data.leetcode
-        .filter(sub => {
-          const problem = sub.problem;
-          if (!problem) return false;
-          return sub.status === 'accepted' && (!problem.dueDate || new Date(sub.createdAt) <= new Date(problem.dueDate));
-        })
-        .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
-
-      let leetcodeStreak = 0;
-      if (onTimeLeetcodeSubs.length > 0) {
-        const subDates = [...new Set(onTimeLeetcodeSubs.map(s => s.createdAt.toISOString().slice(0, 10)))];
-        let todayStr = new Date().toISOString().slice(0, 10);
-        let yesterdayStr = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-        
-        let checkDateStr = subDates.includes(todayStr) ? todayStr : (subDates.includes(yesterdayStr) ? yesterdayStr : null);
-        
-        if (checkDateStr) {
-          leetcodeStreak = 1;
-          let currentMs = new Date(checkDateStr).getTime();
-          while (true) {
-            currentMs -= 86400000;
-            const prevStr = new Date(currentMs).toISOString().slice(0, 10);
-            if (subDates.includes(prevStr)) {
-              leetcodeStreak++;
-            } else {
-              break;
-            }
-          }
-        }
-      }
-
+      // B. Leetcode scores & streaks
+      const leetcodeStreak = calculateStreak(data.leetcode);
       const leetcodeScore = data.leetcode.reduce((sum, s) => sum + (s.score || 0), 0);
 
-      // C. Task scores & streaks (only accepted count for streak)
-      const sortedTasks = [...tasks].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-      let taskStreak = 0;
-      for (const task of sortedTasks) {
-        const sub = data.tasks.find(ts => String(ts.task?._id || ts.task) === String(task._id));
-        if (sub && sub.status === 'accepted' && (!task.dueDate || new Date(sub.createdAt) <= new Date(task.dueDate))) {
-          taskStreak++;
-        } else {
-          break;
-        }
-      }
-
+      // C. Task scores & streaks
+      const taskStreak = calculateStreak(data.tasks);
       const taskScore = data.tasks.reduce((sum, s) => sum + (s.score || 0), 0);
 
       const overallScore = taskScore + leetcodeScore + attendanceMarks + checkInMarks + (leetcodeStreak * 5) + (taskStreak * 5);

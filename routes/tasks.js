@@ -6,6 +6,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import Submission from '../models/Submission.js';
 import Task from '../models/Task.js';
 import cloudinary from '../config/cloudinary.js';
+import { calculateDecayedScore } from '../utils/decay.js';
 
 const upload = multer({ dest: os.tmpdir() });
 const router = express.Router();
@@ -77,16 +78,7 @@ router.post('/:id/submit', requireAuth, requireRole('student'), upload.single('f
     if (!task) return res.status(404).json({ message: 'Task not found' });
 
     const maxScore = task.maxScore || 100;
-    const diffHours = (Date.now() - new Date(task.createdAt).getTime()) / (1000 * 60 * 60);
-    
-    let autoScore = Math.round(maxScore * (20 / 30));
-    if (task.dueDate && Date.now() > new Date(task.dueDate).getTime()) {
-      autoScore = Math.round(maxScore * (15 / 30));
-    } else if (diffHours <= 3) {
-      autoScore = maxScore;
-    } else if (diffHours <= 6) {
-      autoScore = Math.round(maxScore * (25 / 30));
-    }
+    const autoScore = calculateDecayedScore(task.createdAt, new Date(), maxScore);
 
     payload.autoScore = autoScore;
     payload.score = 0; // Set to 0 until accepted by admin

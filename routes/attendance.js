@@ -42,7 +42,6 @@ async function autoCheckOutPending(studentId) {
 
     record.totalHours = hoursBetween(record.checkIn, record.checkOut);
     record.checkInStatus = record.totalHours >= 8 ? 'present' : 'absent';
-    record.status = 'P';
     await record.save();
   }
 }
@@ -68,7 +67,6 @@ async function autoCheckOutAllPending() {
 
     record.totalHours = hoursBetween(record.checkIn, record.checkOut);
     record.checkInStatus = record.totalHours >= 8 ? 'present' : 'absent';
-    record.status = 'P';
     await record.save();
   }
 }
@@ -92,8 +90,7 @@ router.post('/check-in', requireAuth, requireRole('student'), async (req, res) =
     {
       $setOnInsert: { batch: req.user.batch, approvedLeaveHours: leaveHours },
       checkIn: now,
-      checkInStatus: 'checked-in',
-      status: 'P'
+      checkInStatus: 'checked-in'
     },
     { upsert: true, new: true }
   );
@@ -108,7 +105,6 @@ router.post('/check-out', requireAuth, requireRole('student'), async (_req, res)
   record.checkOut = new Date();
   record.totalHours = hoursBetween(record.checkIn, record.checkOut);
   record.checkInStatus = record.totalHours >= 8 ? 'present' : 'absent';
-  record.status = 'P';
   await record.save();
   res.json(record);
 });

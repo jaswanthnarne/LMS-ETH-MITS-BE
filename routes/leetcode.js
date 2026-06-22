@@ -3,6 +3,8 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import Leetcode from '../models/Leetcode.js';
 import LeetcodeProblem from '../models/LeetcodeProblem.js';
 import LeetcodeSubmission from '../models/LeetcodeSubmission.js';
+import { calculateStreak } from '../utils/dates.js';
+import { calculateDecayedScore } from '../utils/decay.js';
 
 const router = express.Router();
 
@@ -159,35 +161,44 @@ router.post('/problems/:id/submit', requireAuth, requireRole('student'), async (
     const { submissionUrl } = req.body;
     if (!submissionUrl) return res.status(400).json({ message: 'Submission URL is required' });
 
+    const problem = await LeetcodeProblem.findById(req.params.id);
+    if (!problem) return res.status(404).json({ message: 'Problem not found' });
+
+    const autoScore = calculateDecayedScore(problem.createdAt, new Date(), 10);
+
     const submission = await LeetcodeSubmission.findOneAndUpdate(
       { problem: req.params.id, student: req.user._id },
-      { submissionUrl, status: 'submitted', score: 0, feedback: '' },
+      { submissionUrl, status: 'submitted', score: autoScore, feedback: '' },
       { upsert: true, new: true }
     );
 
-    const today = new Date().toISOString().slice(0, 10);
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const allSubs = await LeetcodeSubmission.find({ student: req.user._id });
+    const currentStreak = calculateStreak(allSubs);
     
     let leetcode = await Leetcode.findOne({ student: req.user._id });
     if (leetcode) {
-      const lastSyncDate = leetcode.lastSyncedAt ? leetcode.lastSyncedAt.toISOString().slice(0, 10) : null;
-      if (lastSyncDate === yesterday) {
-        leetcode.streak += 1;
-      } else if (lastSyncDate !== today) {
-        leetcode.streak = 1;
-      }
+      leetcode.streak = currentStreak;
       leetcode.lastSyncedAt = new Date();
       await leetcode.save();
     } else {
       await Leetcode.create({
         student: req.user._id,
         username: req.user.rollNumber || req.user.name,
-        streak: 1,
+        streak: currentStreak,
         lastSyncedAt: new Date()
       });
     }
 
     res.json(submission);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.get('/submissions/mine', requireAuth, requireRole('student'), async (req, res) => {
+  try {
+    const submissions = await LeetcodeSubmission.find({ student: req.user._id }).populate('problem').sort('-createdAt');
+    res.json(submissions);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
