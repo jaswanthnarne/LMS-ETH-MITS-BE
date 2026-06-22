@@ -22,7 +22,7 @@ router.get('/summary', requireAuth, async (req, res) => {
   const [students, batches, todayAttendance, pendingLeaves, tasks, submissions, quizzes] = await Promise.all([
     User.countDocuments(isStudent ? { _id: req.user._id } : { role: 'student' }),
     Batch.countDocuments(batchQuery),
-    Attendance.countDocuments({ ...base, date: todayKey(), status: { $in: ['present', 'partial'] } }),
+    Attendance.countDocuments({ ...base, date: todayKey(), status: 'P' }),
     Leave.countDocuments(isStudent ? { ...base, status: 'pending' } : { status: 'pending' }),
     Task.countDocuments(taskQuery),
     Submission.countDocuments(base),
