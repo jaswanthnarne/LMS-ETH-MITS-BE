@@ -46,14 +46,20 @@ router.get('/leaderboard', requireAuth, async (req, res) => {
       return res.json({ leaderboard: [], problems: [], tasks: [] });
     }
 
-    // 1. Fetch data
-    const [students, batch, leetcodeProblems, tasks, leetcodeSubmissions, taskSubmissions, attendanceLogs] = await Promise.all([
+    // 1. Fetch students & batch metadata first
+    const [students, batch] = await Promise.all([
       User.find({ batch: batchId, role: 'student' }).select('name email rollNumber profilePicture'),
-      Batch.findById(batchId),
+      Batch.findById(batchId)
+    ]);
+
+    const studentIds = students.map(s => s._id);
+
+    // 2. Fetch cohort-specific data in parallel
+    const [leetcodeProblems, tasks, leetcodeSubmissions, taskSubmissions, attendanceLogs] = await Promise.all([
       LeetcodeProblem.find({ batch: batchId }).sort('-createdAt'),
       Task.find({ batch: batchId }).sort('-createdAt'),
-      LeetcodeSubmission.find({}).populate('problem'),
-      Submission.find({}).populate('task'),
+      LeetcodeSubmission.find({ student: { $in: studentIds } }).populate('problem'),
+      Submission.find({ student: { $in: studentIds } }).populate('task'),
       Attendance.find({ batch: batchId })
     ]);
 

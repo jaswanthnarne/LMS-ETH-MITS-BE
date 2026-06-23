@@ -82,6 +82,12 @@ router.post('/check-in', requireAuth, requireRole('student'), async (req, res) =
   }
 
   const date = todayKey();
+  
+  const existingRecord = await Attendance.findOne({ student: req.user._id, date });
+  if (existingRecord && existingRecord.checkIn) {
+    return res.status(400).json({ message: 'You have already checked in for today' });
+  }
+
   const leaveHours = await approvedLeaveHours(req.user._id, date);
   if (leaveHours >= 8) return res.status(409).json({ message: 'Full-day leave is approved for today' });
 
