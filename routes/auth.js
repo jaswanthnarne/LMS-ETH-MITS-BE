@@ -132,7 +132,7 @@ router.get('/init', requireAuth, async (req, res) => {
     })();
 
     // Shared list query promises
-    const batchesPromise = safeQuery(Batch.find(isStudent && batchId ? { _id: batchId } : {}).populate('college'));
+    const batchesPromise = safeQuery(Batch.find(isStudent && batchId ? { _id: batchId } : {}).populate('college').populate('students', 'name email rollNumber phone isActive academicDetails skills jobPreference otherDetails'));
     const tasksPromise = safeQuery(Task.find(isStudent && batchId ? { batch: batchId } : {}).populate({ path: 'batch', populate: { path: 'college' } }).populate('createdBy').sort('-createdAt'));
     const quizzesPromise = safeQuery(Quiz.find(isStudent && batchId ? { batch: batchId } : {}).sort('-createdAt'));
     const leetcodeProblemsPromise = safeQuery(LeetcodeProblem.find(isStudent && batchId ? { batch: batchId } : {}).populate({ path: 'batch', populate: { path: 'college' } }).sort('-createdAt'));
