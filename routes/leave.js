@@ -69,11 +69,12 @@ router.patch('/:id/review', requireAuth, requireRole('admin'), async (req, res) 
           { student: leave.student._id, date: dateKey },
           {
             batch: leave.batch?._id,
-            status: 'leave',
+            status: 'L',
             approvedLeaveHours: 8,
             checkIn: null,
             checkOut: null,
-            totalHours: 0
+            totalHours: 0,
+            checkInStatus: 'waiting'
           },
           { upsert: true }
         );
@@ -84,18 +85,20 @@ router.patch('/:id/review', requireAuth, requireRole('admin'), async (req, res) 
     for (const dateKey of dates) {
       const existing = await Attendance.findOne({ student: leave.student._id, date: dateKey });
       if (existing) {
-        if (existing.status === 'leave') {
+        if (existing.status === 'L' || existing.status === 'leave') {
           if (!existing.checkIn) {
             await Attendance.deleteOne({ _id: existing._id });
           } else {
-            existing.status = 'waiting for checkin';
+            existing.status = existing.totalHours >= 8 ? 'P' : 'Ab';
+            existing.checkInStatus = existing.totalHours >= 8 ? 'present' : 'absent';
             existing.approvedLeaveHours = 0;
             await existing.save();
           }
         } else {
           existing.approvedLeaveHours = 0;
           if (existing.checkIn && existing.checkOut) {
-            existing.status = attendanceStatus(existing.totalHours, 0);
+            existing.status = existing.totalHours >= 8 ? 'P' : 'Ab';
+            existing.checkInStatus = existing.totalHours >= 8 ? 'present' : 'absent';
           }
           await existing.save();
         }
@@ -104,6 +107,31 @@ router.patch('/:id/review', requireAuth, requireRole('admin'), async (req, res) 
   }
 
   res.json(leave);
+});
+
+router.patch('/:id', requireAuth, requireRole('student'), async (req, res) => {
+  try {
+    const leave = await Leave.findById(req.params.id);
+    if (!leave) return res.status(404).json({ message: 'Leave request not found' });
+    if (String(leave.student) !== String(req.user._id)) {
+      return res.status(403).json({ message: 'Not authorized to edit this leave request' });
+    }
+    if (leave.status !== 'pending') {
+      return res.status(400).json({ message: 'Cannot edit leave request after it has been reviewed' });
+    }
+
+    const { type, fromDate, toDate, hours, reason } = req.body;
+    if (type !== undefined) leave.type = type;
+    if (fromDate !== undefined) leave.fromDate = fromDate;
+    if (toDate !== undefined) leave.toDate = toDate;
+    if (hours !== undefined) leave.hours = hours;
+    if (reason !== undefined) leave.reason = reason;
+
+    await leave.save();
+    res.json(leave);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
 });
 
 router.delete('/:id', requireAuth, async (req, res) => {
@@ -116,18 +144,20 @@ router.delete('/:id', requireAuth, async (req, res) => {
       for (const dateKey of dates) {
         const existing = await Attendance.findOne({ student: leave.student, date: dateKey });
         if (existing) {
-          if (existing.status === 'leave') {
+          if (existing.status === 'L' || existing.status === 'leave') {
             if (!existing.checkIn) {
               await Attendance.deleteOne({ _id: existing._id });
             } else {
-              existing.status = 'waiting for checkin';
+              existing.status = existing.totalHours >= 8 ? 'P' : 'Ab';
+              existing.checkInStatus = existing.totalHours >= 8 ? 'present' : 'absent';
               existing.approvedLeaveHours = 0;
               await existing.save();
             }
           } else {
             existing.approvedLeaveHours = 0;
             if (existing.checkIn && existing.checkOut) {
-              existing.status = attendanceStatus(existing.totalHours, 0);
+              existing.status = existing.totalHours >= 8 ? 'P' : 'Ab';
+              existing.checkInStatus = existing.totalHours >= 8 ? 'present' : 'absent';
             }
             await existing.save();
           }
