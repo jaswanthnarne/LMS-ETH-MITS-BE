@@ -89,7 +89,6 @@ router.post('/check-in', requireAuth, requireRole('student'), async (req, res) =
   }
 
   const leaveHours = await approvedLeaveHours(req.user._id, date);
-  if (leaveHours >= 8) return res.status(409).json({ message: 'Full-day leave is approved for today' });
 
   const record = await Attendance.findOneAndUpdate(
     { student: req.user._id, date },
@@ -223,6 +222,48 @@ router.post('/reset', requireAuth, requireRole('admin'), async (req, res) => {
       { new: true }
     );
     res.json({ message: 'Check-in data reset successfully', record });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+router.post('/edit', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    const { studentId, date, status, checkIn, checkOut } = req.body;
+    if (!studentId || !date) {
+      return res.status(400).json({ message: 'Student ID and Date are required' });
+    }
+
+    const payload = {};
+    if (status !== undefined) payload.status = status;
+    
+    payload.checkIn = checkIn ? new Date(checkIn) : null;
+    payload.checkOut = checkOut ? new Date(checkOut) : null;
+
+    if (payload.checkIn && payload.checkOut) {
+      payload.totalHours = hoursBetween(payload.checkIn, payload.checkOut);
+      payload.checkInStatus = payload.totalHours >= 8 ? 'present' : 'absent';
+    } else if (payload.checkIn) {
+      payload.totalHours = 0;
+      payload.checkInStatus = 'checked-in';
+    } else {
+      payload.totalHours = 0;
+      payload.checkInStatus = 'waiting';
+    }
+
+    const student = await User.findById(studentId);
+    if (student && student.batch) {
+      payload.batch = student.batch;
+    }
+    const leaveHours = await approvedLeaveHours(studentId, date);
+    payload.approvedLeaveHours = leaveHours;
+
+    const record = await Attendance.findOneAndUpdate(
+      { student: studentId, date },
+      payload,
+      { upsert: true, new: true }
+    );
+    res.json({ message: 'Attendance record updated successfully', record });
   } catch (error) {
     res.status(400).json({ message: error.message });
   }

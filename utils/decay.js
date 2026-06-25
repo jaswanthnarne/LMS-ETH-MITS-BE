@@ -3,25 +3,25 @@ export function calculateDecayedScore(creationDate, submissionDate, maxScore = 1
   const elapsedMins = Math.max(0, elapsedMs / (1000 * 60));
 
   let points = 0;
-  if (elapsedMins <= 10) {
+  if (elapsedMins <= 180) { // 3 hours
     points = 10;
-  } else if (elapsedMins <= 40) {
+  } else if (elapsedMins <= 240) { // 4 hours
     points = 9;
-  } else if (elapsedMins <= 70) {
+  } else if (elapsedMins <= 300) { // 5 hours
     points = 8;
-  } else if (elapsedMins <= 130) {
+  } else if (elapsedMins <= 360) { // 6 hours
     points = 7;
-  } else if (elapsedMins <= 190) {
+  } else if (elapsedMins <= 420) { // 7 hours
     points = 6;
-  } else if (elapsedMins <= 250) {
+  } else if (elapsedMins <= 480) { // 8 hours
     points = 5;
-  } else if (elapsedMins <= 310) {
+  } else if (elapsedMins <= 540) { // 9 hours
     points = 4;
-  } else if (elapsedMins <= 370) {
+  } else if (elapsedMins <= 600) { // 10 hours
     points = 3;
-  } else if (elapsedMins <= 430) {
+  } else if (elapsedMins <= 660) { // 11 hours
     points = 2;
-  } else if (elapsedMins <= 490) {
+  } else if (elapsedMins <= 720) { // 12 hours
     points = 1;
   } else {
     points = 0;
@@ -29,3 +29,4 @@ export function calculateDecayedScore(creationDate, submissionDate, maxScore = 1
 
   return Math.round((points / 10) * maxScore);
 }
+
