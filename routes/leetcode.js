@@ -4,28 +4,40 @@ import User from '../models/User.js';
 import Leetcode from '../models/Leetcode.js';
 import LeetcodeProblem from '../models/LeetcodeProblem.js';
 import LeetcodeSubmission from '../models/LeetcodeSubmission.js';
-import { calculateStreak } from '../utils/dates.js';
+import { calculateStreak, todayKey } from '../utils/dates.js';
 import { calculateDecayedScore } from '../utils/decay.js';
 import { recalculateLeetcodeStats } from '../utils/leetcodeHelper.js';
+
+// Convert a date-string like "2026-06-25" to end-of-day IST (23:59:59 IST)
+// This ensures the due date set by admin means "end of that calendar day in India"
+// IST = UTC+5:30, so end-of-day IST = 18:29:59 UTC
+function dueDateEndOfDayIST(dateStr) {
+  if (!dateStr) return undefined;
+  // dateStr is "YYYY-MM-DD"
+  // 23:59:59 IST = 18:29:59 UTC (subtract 5h 30m)
+  return new Date(`${dateStr}T18:29:59.000Z`);
+}
+
 
 const router = express.Router();
 
 // 1. Profile Sync & Leaderboard (Original routes)
 router.get('/mine', requireAuth, requireRole('student'), async (req, res) => {
-  res.json(await Leetcode.findOne({ student: req.user._id }));
+  try {
+    const record = await Leetcode.findOne({ student: req.user._id });
+    res.json(record);
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
 });
 
 router.post('/mine', requireAuth, requireRole('student'), async (req, res) => {
   try {
     const { username } = req.body;
-    if (!username) return res.status(400).json({ message: 'LeetCode username is required' });
+    if (!username) return res.status(400).json({ message: 'Leetcode username is required' });
 
-    // Save the username first so recalculateLeetcodeStats can pick it up
-    await User.findByIdAndUpdate(req.user._id, { leetcodeUsername: username });
-
-    // Full sync: external GraphQL stats + heatmap + platform streak
-    const record = await recalculateLeetcodeStats(req.user._id);
-    res.json(record);
+    const stats = await recalculateLeetcodeStats(req.user._id, username);
+    res.json(stats);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -45,12 +57,13 @@ router.get('/problems', requireAuth, async (req, res) => {
     
     if (req.user.role === 'student') {
       const submissions = await LeetcodeSubmission.find({ student: req.user._id });
-      const subMap = new Map(submissions.map(s => [String(s.problem), s]));
+      const subMap = new Map(submissions.map((sub) => [String(sub.problem), sub]));
       
-      const enriched = problems.map(problem => ({
-        ...problem.toObject(),
-        submission: subMap.get(String(problem._id)) || null
-      }));
+      const enriched = problems.map((prob) => {
+        const probObj = prob.toObject();
+        probObj.submission = subMap.get(String(prob._id)) || null;
+        return probObj;
+      });
       return res.json(enriched);
     }
     
@@ -62,24 +75,36 @@ router.get('/problems', requireAuth, async (req, res) => {
 
 router.post('/problems', requireAuth, requireRole('admin'), async (req, res) => {
   try {
-    const problem = await LeetcodeProblem.create({
-      ...req.body,
-      createdBy: req.user._id
-    });
+    if (req.body.dueDate && req.body.dueDate < todayKey()) {
+      return res.status(400).json({ message: 'Due date cannot be in the past' });
+    }
+    const body = { ...req.body, createdBy: req.user._id };
+    // Store dueDate as end-of-day IST so "2026-06-25" means 25 Jun 11:59 PM IST
+    if (body.dueDate) body.dueDate = dueDateEndOfDayIST(body.dueDate);
+    const problem = await LeetcodeProblem.create(body);
     res.status(201).json(problem);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 });
 
+
 router.patch('/problems/:id', requireAuth, requireRole('admin'), async (req, res) => {
   try {
-    const problem = await LeetcodeProblem.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate({ path: 'batch', populate: { path: 'college' } });
+    if (req.body.dueDate && req.body.dueDate < todayKey()) {
+      return res.status(400).json({ message: 'Due date cannot be in the past' });
+    }
+    const update = { ...req.body };
+    // Normalize dueDate to end-of-day IST
+    if (update.dueDate) update.dueDate = dueDateEndOfDayIST(update.dueDate);
+    const problem = await LeetcodeProblem.findByIdAndUpdate(req.params.id, update, { new: true })
+      .populate({ path: 'batch', populate: { path: 'college' } });
     res.json(problem);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 });
+
 
 router.delete('/problems/:id', requireAuth, requireRole('admin'), async (req, res) => {
   try {
@@ -98,6 +123,16 @@ router.post('/problems/:id/submit', requireAuth, requireRole('student'), async (
 
     const problem = await LeetcodeProblem.findById(req.params.id);
     if (!problem) return res.status(404).json({ message: 'Problem not found' });
+
+    // ── Due date enforcement (IST) ──────────────────────────────────────────
+    if (problem.dueDate) {
+      const nowUTC = new Date();
+      if (nowUTC > new Date(problem.dueDate)) {
+        return res.status(400).json({
+          message: `Submission deadline has passed. This problem was due on ${new Date(problem.dueDate).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })} IST.`
+        });
+      }
+    }
 
     const existingSubmission = await LeetcodeSubmission.findOne({ problem: req.params.id, student: req.user._id });
     if (existingSubmission && existingSubmission.status === 'accepted') {
@@ -119,6 +154,7 @@ router.post('/problems/:id/submit', requireAuth, requireRole('student'), async (
     res.status(400).json({ message: error.message });
   }
 });
+
 
 router.get('/submissions/mine', requireAuth, requireRole('student'), async (req, res) => {
   try {

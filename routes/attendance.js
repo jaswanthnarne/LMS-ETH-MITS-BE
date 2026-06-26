@@ -41,8 +41,6 @@ async function autoCheckOutPending(studentId) {
     }
 
     record.totalHours = hoursBetween(record.checkIn, record.checkOut);
-    const reqHrs = Math.max(0, 8 - (record.approvedLeaveHours || 0));
-    record.status = record.totalHours >= reqHrs ? 'P' : 'Ab';
     record.checkInStatus = record.totalHours >= 8 ? 'present' : 'absent';
     await record.save();
   }
@@ -68,8 +66,6 @@ async function autoCheckOutAllPending() {
     }
 
     record.totalHours = hoursBetween(record.checkIn, record.checkOut);
-    const reqHrs = Math.max(0, 8 - (record.approvedLeaveHours || 0));
-    record.status = record.totalHours >= reqHrs ? 'P' : 'Ab';
     record.checkInStatus = record.totalHours >= 8 ? 'present' : 'absent';
     await record.save();
   }
@@ -113,11 +109,7 @@ router.post('/check-out', requireAuth, requireRole('student'), async (_req, res)
 
   record.checkOut = new Date();
   record.totalHours = hoursBetween(record.checkIn, record.checkOut);
-  
-  const reqHrs = Math.max(0, 8 - (record.approvedLeaveHours || 0));
-  record.status = record.totalHours >= reqHrs ? 'P' : 'Ab';
   record.checkInStatus = record.totalHours >= 8 ? 'present' : 'absent';
-  
   await record.save();
   res.json(record);
 });
@@ -149,7 +141,7 @@ router.get('/logs', requireAuth, requireRole('admin'), async (req, res) => {
       const record = byStudent.get(String(student._id));
       const leave = leavesByStudent.get(String(student._id));
       
-      let attendance = record;
+      let attendance = record ? (record.toObject ? record.toObject() : { ...record }) : null;
       if (!attendance) {
         let status = 'Ab';
         let checkInStatus = 'waiting';
@@ -171,6 +163,13 @@ router.get('/logs', requireAuth, requireRole('admin'), async (req, res) => {
           totalHours: 0,
           approvedLeaveHours: approvedLeaveHrs
         };
+      } else if (leave) {
+        if (leave.type === 'hourly') {
+          attendance.approvedLeaveHours = leave.hours;
+        } else {
+          attendance.status = 'L';
+          attendance.approvedLeaveHours = 8;
+        }
       }
       return { student, attendance };
     })

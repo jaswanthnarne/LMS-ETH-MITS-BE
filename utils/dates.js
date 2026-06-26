@@ -24,7 +24,9 @@ export function calculateStreak(submissions, items = []) {
   // Sort items chronologically by creation date (oldest first)
   const sortedItems = [...items].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   
-  const subMap = new Set(submissions.map(s => String(s.problem?._id || s.problem || s.task?._id || s.task)));
+  // Filter out any submissions that are in 'resubmit' status
+  const validSubmissions = submissions.filter(s => s.status !== 'resubmit');
+  const subMap = new Set(validSubmissions.map(s => String(s.problem?._id || s.problem || s.task?._id || s.task)));
   
   let streak = 0;
   const now = new Date();

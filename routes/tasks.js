@@ -7,9 +7,17 @@ import Submission from '../models/Submission.js';
 import Task from '../models/Task.js';
 import cloudinary from '../config/cloudinary.js';
 import { calculateDecayedScore } from '../utils/decay.js';
+import { todayKey } from '../utils/dates.js';
+
+// Store dueDate as end-of-day IST (23:59:59 IST = 18:29:59 UTC)
+function dueDateEndOfDayIST(dateStr) {
+  if (!dateStr) return undefined;
+  return new Date(`${dateStr}T18:29:59.000Z`);
+}
 
 const upload = multer({ dest: os.tmpdir() });
 const router = express.Router();
+
 
 router.get('/', requireAuth, async (req, res) => {
   try {
@@ -23,19 +31,32 @@ router.get('/', requireAuth, async (req, res) => {
 
 router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
   try {
-    res.status(201).json(await Task.create({ ...req.body, createdBy: req.user._id }));
+    if (req.body.dueDate && req.body.dueDate < todayKey()) {
+      return res.status(400).json({ message: 'Due date cannot be in the past' });
+    }
+    const body = { ...req.body, createdBy: req.user._id };
+    if (body.dueDate) body.dueDate = dueDateEndOfDayIST(body.dueDate);
+    res.status(201).json(await Task.create(body));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 });
 
+
 router.patch('/:id', requireAuth, requireRole('admin'), async (req, res) => {
   try {
-    res.json(await Task.findByIdAndUpdate(req.params.id, req.body, { new: true }).populate({ path: 'batch', populate: { path: 'college' } }));
+    if (req.body.dueDate && req.body.dueDate < todayKey()) {
+      return res.status(400).json({ message: 'Due date cannot be in the past' });
+    }
+    const update = { ...req.body };
+    if (update.dueDate) update.dueDate = dueDateEndOfDayIST(update.dueDate);
+    res.json(await Task.findByIdAndUpdate(req.params.id, update, { new: true })
+      .populate({ path: 'batch', populate: { path: 'college' } }));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 });
+
 
 router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
   try {
@@ -77,7 +98,17 @@ router.post('/:id/submit', requireAuth, requireRole('student'), upload.single('f
     const task = await Task.findById(req.params.id);
     if (!task) return res.status(404).json({ message: 'Task not found' });
 
+    // ── Due date enforcement (IST) ──────────────────────────────────────────
+    if (task.dueDate) {
+      if (new Date() > new Date(task.dueDate)) {
+        return res.status(400).json({
+          message: `Submission deadline has passed. This task was due on ${new Date(task.dueDate).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', dateStyle: 'medium', timeStyle: 'short' })} IST.`
+        });
+      }
+    }
+
     const existingSubmission = await Submission.findOne({ task: req.params.id, student: req.user._id });
+
     if (existingSubmission && existingSubmission.status === 'accepted') {
       return res.status(400).json({ message: 'Your submission has already been graded and accepted. You cannot overwrite it.' });
     }
