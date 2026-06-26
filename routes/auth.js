@@ -158,6 +158,26 @@ router.get('/init', requireAuth, async (req, res) => {
             const records = await Attendance.find({ date: filterDate, student: { $in: students.map(s => s._id) } });
             const byStudent = new Map(records.map(r => [String(r.student), r]));
 
+            const allBatchRecords = await Attendance.find({ student: { $in: students.map(s => s._id) } });
+            const statsByStudent = new Map();
+            allBatchRecords.forEach(r => {
+              const studentId = String(r.student);
+              if (!statsByStudent.has(studentId)) {
+                statsByStudent.set(studentId, { present: 0, leave: 0, absent: 0, marked: 0 });
+              }
+              const stats = statsByStudent.get(studentId);
+              if (['P', 'present'].includes(r.status)) {
+                stats.present += 1;
+                stats.marked += 1;
+              } else if (['L', 'leave'].includes(r.status)) {
+                stats.leave += 1;
+                stats.marked += 1;
+              } else if (['Ab', 'absent'].includes(r.status)) {
+                stats.absent += 1;
+                stats.marked += 1;
+              }
+            });
+
             const dayObj = new Date(`${filterDate}T00:00:00.000Z`);
             const leaves = await Leave.find({
               student: { $in: students.map(s => s._id) },
@@ -207,6 +227,20 @@ router.get('/init', requireAuth, async (req, res) => {
                 attendanceObj = attendanceObj.toObject();
                 attendanceObj.student = student;
               }
+
+              const stats = statsByStudent.get(String(student._id)) || { present: 0, leave: 0, absent: 0, marked: 0 };
+              const attendancePercentage = stats.marked > 0 
+                ? (((stats.present + stats.leave) / stats.marked) * 100).toFixed(1)
+                : '100.0';
+              
+              attendanceObj.summary = {
+                present: stats.present,
+                leave: stats.leave,
+                absent: stats.absent,
+                marked: stats.marked,
+                percentage: parseFloat(attendancePercentage)
+              };
+
               return attendanceObj;
             });
           } catch (err) {
