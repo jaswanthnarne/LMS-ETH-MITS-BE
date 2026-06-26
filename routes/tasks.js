@@ -77,8 +77,13 @@ router.post('/:id/submit', requireAuth, requireRole('student'), upload.single('f
     const task = await Task.findById(req.params.id);
     if (!task) return res.status(404).json({ message: 'Task not found' });
 
+    const existingSubmission = await Submission.findOne({ task: req.params.id, student: req.user._id });
+    if (existingSubmission && existingSubmission.status === 'accepted') {
+      return res.status(400).json({ message: 'Your submission has already been graded and accepted. You cannot overwrite it.' });
+    }
+
     const maxScore = task.maxScore || 100;
-    const autoScore = calculateDecayedScore(task.createdAt, new Date(), maxScore);
+    const autoScore = calculateDecayedScore(task.dueDate, new Date(), maxScore);
 
     payload.autoScore = autoScore;
     payload.score = 0; // Set to 0 until accepted by admin

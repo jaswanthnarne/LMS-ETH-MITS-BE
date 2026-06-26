@@ -6,7 +6,7 @@ import College from '../models/College.js';
 
 const router = express.Router();
 
-router.get('/', requireAuth, async (_req, res) => {
+router.get('/', requireAuth, requireRole('admin'), async (_req, res) => {
   res.json(await Batch.find().populate('college').populate('students', 'name email rollNumber phone isActive academicDetails skills jobPreference otherDetails').sort('name'));
 });
 

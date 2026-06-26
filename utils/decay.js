@@ -1,6 +1,9 @@
-export function calculateDecayedScore(creationDate, submissionDate, maxScore = 10) {
-  const elapsedMs = new Date(submissionDate).getTime() - new Date(creationDate).getTime();
-  const elapsedMins = Math.max(0, elapsedMs / (1000 * 60));
+export function calculateDecayedScore(dueDate, submissionDate, maxScore = 10) {
+  if (!dueDate) return maxScore;
+  const elapsedMs = new Date(submissionDate).getTime() - new Date(dueDate).getTime();
+  if (elapsedMs <= 0) return maxScore;
+
+  const elapsedMins = elapsedMs / (1000 * 60);
 
   if (elapsedMins <= 180) { // 3 hours
     return maxScore;

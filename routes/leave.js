@@ -18,13 +18,14 @@ function getDatesInRange(startDate, endDate) {
 
 function attendanceStatus(totalHours, leaveHours = 0) {
   const requiredHours = Math.max(0, 8 - leaveHours);
-  if (totalHours >= requiredHours) return 'present';
-  if (totalHours > 0) return 'partial';
-  return 'absent';
+  if (totalHours >= requiredHours) return 'P';
+  return 'Ab';
 }
 
 router.post('/', requireAuth, requireRole('student'), async (req, res) => {
-  const leave = await Leave.create({ ...req.body, student: req.user._id, batch: req.user.batch });
+  const payload = { ...req.body };
+  if (payload.toDate === '') delete payload.toDate;
+  const leave = await Leave.create({ ...payload, student: req.user._id, batch: req.user.batch });
   res.status(201).json(leave);
 });
 
@@ -61,7 +62,8 @@ router.patch('/:id/review', requireAuth, requireRole('admin'), async (req, res) 
             batch: leave.batch?._id,
             date: dateKey,
             approvedLeaveHours: leave.hours,
-            status: 'waiting for checkin'
+            status: 'Ab',
+            checkInStatus: 'waiting'
           });
         }
       } else {

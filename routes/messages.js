@@ -6,6 +6,9 @@ import Batch from '../models/Batch.js';
 const router = express.Router();
 
 router.get('/:batchId', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin' && String(req.user.batch) !== String(req.params.batchId)) {
+    return res.status(403).json({ message: 'You are not authorized to view this batch\'s messages' });
+  }
   res.json(await Message.find({ batch: req.params.batchId }).populate('sender', 'name role').sort('createdAt').limit(100));
 });
 
@@ -36,6 +39,9 @@ router.post('/broadcast', requireAuth, async (req, res) => {
 });
 
 router.post('/:batchId', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin' && String(req.user.batch) !== String(req.params.batchId)) {
+    return res.status(403).json({ message: 'You are not authorized to post to this batch\'s chat' });
+  }
   const message = await Message.create({
     batch: req.params.batchId,
     sender: req.user._id,

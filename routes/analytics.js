@@ -95,11 +95,16 @@ router.get('/leaderboard', requireAuth, async (req, res) => {
       const checkedInDays = data.attendance.filter(a => a.status === 'P').length;
       const attendanceMarks = checkedInDays * 10;
 
-      // A2. Check-In Marks (based on hours check-in: 10 pts if duration between check-in and check-out is >= 8 hrs)
+      // A2. Check-In Marks (based on hours check-in: proportional points)
       let checkInMarks = 0;
       data.attendance.forEach(a => {
-        if (a.checkIn && a.checkOut && (a.totalHours || 0) >= 8) {
-          checkInMarks += 10;
+        if (a.checkIn && a.checkOut) {
+          const hours = a.totalHours || 0;
+          if (hours >= 7.5) {
+            checkInMarks += 10;
+          } else if (hours >= 3) {
+            checkInMarks += Math.round(((hours - 3) / 4.5) * 10);
+          }
         }
       });
 

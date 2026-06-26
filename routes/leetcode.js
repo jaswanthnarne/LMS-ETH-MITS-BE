@@ -70,16 +70,20 @@ router.post('/mine', requireAuth, requireRole('student'), async (req, res) => {
 
     let stats = await fetchLeetcodeStatsWithGraphQL(username);
     
-    // Fallback if live stats call returned null (e.g. rate limit, offline, invalid user)
+    const existing = await Leetcode.findOne({ student: req.user._id });
     if (!stats) {
-      const mockEasy = Math.floor(Math.random() * 50) + 20;
-      const mockMedium = Math.floor(Math.random() * 30) + 10;
-      const mockHard = Math.floor(Math.random() * 10) + 2;
-      const mockTotal = mockEasy + mockMedium + mockHard;
-      stats = { easy: mockEasy, medium: mockMedium, hard: mockHard, totalSolved: mockTotal };
+      if (existing) {
+        stats = {
+          easy: existing.easy,
+          medium: existing.medium,
+          hard: existing.hard,
+          totalSolved: existing.totalSolved
+        };
+      } else {
+        stats = { easy: 0, medium: 0, hard: 0, totalSolved: 0 };
+      }
     }
 
-    const existing = await Leetcode.findOne({ student: req.user._id });
     const metrics = {
       username,
       student: req.user._id,
@@ -164,7 +168,12 @@ router.post('/problems/:id/submit', requireAuth, requireRole('student'), async (
     const problem = await LeetcodeProblem.findById(req.params.id);
     if (!problem) return res.status(404).json({ message: 'Problem not found' });
 
-    const autoScore = calculateDecayedScore(problem.createdAt, new Date(), 10);
+    const existingSubmission = await LeetcodeSubmission.findOne({ problem: req.params.id, student: req.user._id });
+    if (existingSubmission && existingSubmission.status === 'accepted') {
+      return res.status(400).json({ message: 'Your submission has already been graded and accepted. You cannot overwrite it.' });
+    }
+
+    const autoScore = calculateDecayedScore(problem.dueDate, new Date(), 10);
 
     const submission = await LeetcodeSubmission.findOneAndUpdate(
       { problem: req.params.id, student: req.user._id },

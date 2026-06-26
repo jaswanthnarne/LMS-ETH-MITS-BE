@@ -9,9 +9,8 @@ export function hoursBetween(start, end) {
 
 export function attendanceStatus(totalHours, leaveHours = 0) {
   const requiredHours = Math.max(0, 8 - leaveHours);
-  if (totalHours >= requiredHours) return 'present';
-  if (totalHours > 0) return 'partial';
-  return 'absent';
+  if (totalHours >= requiredHours) return 'P';
+  return 'Ab';
 }
 
 export function getISTDateString(date = new Date()) {

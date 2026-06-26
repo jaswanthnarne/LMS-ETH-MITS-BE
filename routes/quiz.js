@@ -53,16 +53,27 @@ router.post('/:id/attempt', requireAuth, requireRole('student'), async (req, res
   try {
     const quiz = await Quiz.findById(req.params.id);
     if (!quiz) return res.status(404).json({ message: 'Quiz not found' });
+    if (!quiz.isLive) {
+      return res.status(400).json({ message: 'This quiz is not currently live or active' });
+    }
+
+    const existingAttempt = await QuizAttempt.findOne({ quiz: quiz._id, student: req.user._id });
+    if (existingAttempt) {
+      return res.status(400).json({ message: 'You have already submitted an attempt for this quiz' });
+    }
+
     const answers = req.body.answers.map((answer) => ({
       ...answer,
       isCorrect: quiz.questions[answer.questionIndex]?.correctIndex === answer.selectedIndex
     }));
     const score = answers.reduce((total, answer) => total + (answer.isCorrect ? quiz.questions[answer.questionIndex].points : 0), 0);
-    const attempt = await QuizAttempt.findOneAndUpdate(
-      { quiz: quiz._id, student: req.user._id },
-      { answers, score, submittedAt: new Date() },
-      { upsert: true, new: true }
-    );
+    const attempt = await QuizAttempt.create({
+      quiz: quiz._id,
+      student: req.user._id,
+      answers,
+      score,
+      submittedAt: new Date()
+    });
     res.json(attempt);
   } catch (error) {
     res.status(400).json({ message: error.message });

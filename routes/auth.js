@@ -338,23 +338,23 @@ async function syncLeetcodeStats(studentId, username) {
       }
     }
   } catch (err) {
-    console.warn(`Failed to fetch Leetcode GraphQL stats for ${username}, falling back to mock:`, err.message);
+    console.warn(`Failed to fetch Leetcode GraphQL stats for ${username}, falling back to existing stats:`, err.message);
   }
   
-  // Fallback / Mock values
-  const mockEasy = Math.floor(Math.random() * 50) + 20;
-  const mockMedium = Math.floor(Math.random() * 30) + 10;
-  const mockHard = Math.floor(Math.random() * 10) + 2;
-  const mockTotal = mockEasy + mockMedium + mockHard;
+  const existing = await Leetcode.findOne({ student: studentId });
+  const easy = existing ? existing.easy : 0;
+  const medium = existing ? existing.medium : 0;
+  const hard = existing ? existing.hard : 0;
+  const totalSolved = existing ? existing.totalSolved : 0;
   
   await Leetcode.findOneAndUpdate(
     { student: studentId },
     {
       username,
-      easy: mockEasy,
-      medium: mockMedium,
-      hard: mockHard,
-      totalSolved: mockTotal,
+      easy,
+      medium,
+      hard,
+      totalSolved,
       lastSyncedAt: new Date()
     },
     { upsert: true, new: true }
