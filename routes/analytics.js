@@ -92,7 +92,7 @@ router.get('/leaderboard', requireAuth, async (req, res) => {
       const data = studentSubMap.get(studentId);
 
       // A. Attendance Marks (10 pts per present day or approved leave)
-      const checkedInDays = data.attendance.filter(a => a.status === 'P' || a.status === 'L').length;
+      const checkedInDays = data.attendance.filter(a => ['P', 'present', 'L', 'leave'].includes(a.status)).length;
       const attendanceMarks = checkedInDays * 10;
 
       // A2. Check-In Marks (based on hours check-in: proportional points)
