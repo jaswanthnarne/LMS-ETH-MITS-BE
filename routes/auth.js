@@ -17,6 +17,7 @@ import Attendance from '../models/Attendance.js';
 import Leave from '../models/Leave.js';
 import { todayKey } from '../utils/dates.js';
 import cloudinary from '../config/cloudinary.js';
+import { recalculateLeetcodeStats } from '../utils/leetcodeHelper.js';
 
 const upload = multer({ dest: os.tmpdir() });
 
@@ -283,82 +284,10 @@ router.patch('/approve/:id', requireAuth, requireRole('admin'), async (req, res)
 async function syncLeetcodeStats(studentId, username) {
   if (!username) return;
   try {
-    const query = `
-      query userProblemsSolved($username: String!) {
-        matchedUser(username: $username) {
-          submitStats {
-            acSubmissionNum {
-              difficulty
-              count
-            }
-          }
-        }
-      }
-    `;
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-    const res = await fetch('https://leetcode.com/graphql', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-      },
-      body: JSON.stringify({
-        query,
-        variables: { username }
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    
-    if (res.ok) {
-      const result = await res.json();
-      const submissionNums = result.data?.matchedUser?.submitStats?.acSubmissionNum;
-      if (submissionNums) {
-        let easy = 0, medium = 0, hard = 0;
-        submissionNums.forEach(item => {
-          if (item.difficulty === 'Easy') easy = item.count;
-          if (item.difficulty === 'Medium') medium = item.count;
-          if (item.difficulty === 'Hard') hard = item.count;
-        });
-        await Leetcode.findOneAndUpdate(
-          { student: studentId },
-          {
-            username,
-            easy,
-            medium,
-            hard,
-            totalSolved: easy + medium + hard,
-            lastSyncedAt: new Date()
-          },
-          { upsert: true, new: true }
-        );
-        return;
-      }
-    }
+    await recalculateLeetcodeStats(studentId);
   } catch (err) {
-    console.warn(`Failed to fetch Leetcode GraphQL stats for ${username}, falling back to existing stats:`, err.message);
+    console.warn(`Failed to sync Leetcode stats locally for student ${studentId}:`, err.message);
   }
-  
-  const existing = await Leetcode.findOne({ student: studentId });
-  const easy = existing ? existing.easy : 0;
-  const medium = existing ? existing.medium : 0;
-  const hard = existing ? existing.hard : 0;
-  const totalSolved = existing ? existing.totalSolved : 0;
-  
-  await Leetcode.findOneAndUpdate(
-    { student: studentId },
-    {
-      username,
-      easy,
-      medium,
-      hard,
-      totalSolved,
-      lastSyncedAt: new Date()
-    },
-    { upsert: true, new: true }
-  );
 }
 
 router.post('/me', requireAuth, upload.single('profilePicture'), async (req, res) => {

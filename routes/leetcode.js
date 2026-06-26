@@ -1,10 +1,12 @@
 import express from 'express';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import User from '../models/User.js';
 import Leetcode from '../models/Leetcode.js';
 import LeetcodeProblem from '../models/LeetcodeProblem.js';
 import LeetcodeSubmission from '../models/LeetcodeSubmission.js';
 import { calculateStreak } from '../utils/dates.js';
 import { calculateDecayedScore } from '../utils/decay.js';
+import { recalculateLeetcodeStats } from '../utils/leetcodeHelper.js';
 
 const router = express.Router();
 
@@ -68,33 +70,8 @@ router.post('/mine', requireAuth, requireRole('student'), async (req, res) => {
     const { username } = req.body;
     if (!username) return res.status(400).json({ message: 'Leetcode username is required' });
 
-    let stats = await fetchLeetcodeStatsWithGraphQL(username);
-    
-    const existing = await Leetcode.findOne({ student: req.user._id });
-    if (!stats) {
-      if (existing) {
-        stats = {
-          easy: existing.easy,
-          medium: existing.medium,
-          hard: existing.hard,
-          totalSolved: existing.totalSolved
-        };
-      } else {
-        stats = { easy: 0, medium: 0, hard: 0, totalSolved: 0 };
-      }
-    }
-
-    const metrics = {
-      username,
-      student: req.user._id,
-      easy: stats.easy,
-      medium: stats.medium,
-      hard: stats.hard,
-      totalSolved: stats.totalSolved,
-      streak: existing ? existing.streak : 0,
-      lastSyncedAt: new Date()
-    };
-    const record = await Leetcode.findOneAndUpdate({ student: req.user._id }, metrics, { upsert: true, new: true });
+    await User.findByIdAndUpdate(req.user._id, { leetcodeUsername: username });
+    const record = await recalculateLeetcodeStats(req.user._id);
     res.json(record);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -181,23 +158,7 @@ router.post('/problems/:id/submit', requireAuth, requireRole('student'), async (
       { upsert: true, new: true }
     );
 
-    const allSubs = await LeetcodeSubmission.find({ student: req.user._id });
-    const problems = await LeetcodeProblem.find({ batch: req.user.batch });
-    const currentStreak = calculateStreak(allSubs, problems);
-    
-    let leetcode = await Leetcode.findOne({ student: req.user._id });
-    if (leetcode) {
-      leetcode.streak = currentStreak;
-      leetcode.lastSyncedAt = new Date();
-      await leetcode.save();
-    } else {
-      await Leetcode.create({
-        student: req.user._id,
-        username: req.user.rollNumber || req.user.name,
-        streak: currentStreak,
-        lastSyncedAt: new Date()
-      });
-    }
+    await recalculateLeetcodeStats(req.user._id);
 
     res.json(submission);
   } catch (error) {
@@ -233,6 +194,9 @@ router.patch('/submissions/:id', requireAuth, requireRole('admin'), async (req, 
     if (req.body.feedback !== undefined) submission.feedback = req.body.feedback;
 
     await submission.save();
+    
+    await recalculateLeetcodeStats(submission.student);
+
     res.json(await LeetcodeSubmission.findById(submission._id).populate('problem student'));
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -251,7 +215,15 @@ router.post('/submissions/bulk-review', requireAuth, requireRole('admin'), async
     if (score !== undefined) update.score = score;
     if (feedback !== undefined) update.feedback = feedback;
 
+    const submissions = await LeetcodeSubmission.find({ _id: { $in: ids } });
+    const studentIds = [...new Set(submissions.map(s => String(s.student)))];
+
     await LeetcodeSubmission.updateMany({ _id: { $in: ids } }, { $set: update });
+
+    for (const studentId of studentIds) {
+      await recalculateLeetcodeStats(studentId);
+    }
+
     res.json({ message: 'Bulk submissions updated successfully' });
   } catch (error) {
     res.status(400).json({ message: error.message });
