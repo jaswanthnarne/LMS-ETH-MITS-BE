@@ -15,68 +15,22 @@ router.get('/mine', requireAuth, requireRole('student'), async (req, res) => {
   res.json(await Leetcode.findOne({ student: req.user._id }));
 });
 
-async function fetchLeetcodeStatsWithGraphQL(username) {
-  try {
-    const query = `
-      query userProblemsSolved($username: String!) {
-        matchedUser(username: $username) {
-          submitStats {
-            acSubmissionNum {
-              difficulty
-              count
-            }
-          }
-        }
-      }
-    `;
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 4000);
-    const response = await fetch('https://leetcode.com/graphql', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-      },
-      body: JSON.stringify({
-        query,
-        variables: { username }
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    
-    if (response.ok) {
-      const result = await response.json();
-      const submissionNums = result.data?.matchedUser?.submitStats?.acSubmissionNum;
-      if (submissionNums) {
-        let easy = 0, medium = 0, hard = 0;
-        submissionNums.forEach(item => {
-          if (item.difficulty === 'Easy') easy = item.count;
-          if (item.difficulty === 'Medium') medium = item.count;
-          if (item.difficulty === 'Hard') hard = item.count;
-        });
-        return { easy, medium, hard, totalSolved: easy + medium + hard };
-      }
-    }
-  } catch (err) {
-    console.warn(`Failed to fetch Leetcode GraphQL stats for ${username}:`, err.message);
-  }
-  return null;
-}
-
 router.post('/mine', requireAuth, requireRole('student'), async (req, res) => {
   try {
     const { username } = req.body;
-    if (!username) return res.status(400).json({ message: 'Leetcode username is required' });
+    if (!username) return res.status(400).json({ message: 'LeetCode username is required' });
 
+    // Save the username first so recalculateLeetcodeStats can pick it up
     await User.findByIdAndUpdate(req.user._id, { leetcodeUsername: username });
+
+    // Full sync: external GraphQL stats + heatmap + platform streak
     const record = await recalculateLeetcodeStats(req.user._id);
     res.json(record);
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
 });
+
 
 router.get('/', requireAuth, requireRole('admin'), async (_req, res) => {
   res.json(await Leetcode.find().populate('student').sort('-totalSolved'));
