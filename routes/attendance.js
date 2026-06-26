@@ -200,23 +200,29 @@ router.post('/bulk', requireAuth, requireRole('admin'), async (req, res) => {
     const targetDate = date || todayKey();
     const updated = [];
     for (const record of records) {
-      let dbStatus = 'Ab';
+      let dbStatus = '';
       if (record.status === 'P' || record.status === 'present') dbStatus = 'P';
       else if (record.status === 'L' || record.status === 'leave') dbStatus = 'L';
+      else if (record.status === 'Ab' || record.status === 'absent') dbStatus = 'Ab';
 
       const payload = {
         batch: batchId,
-        status: dbStatus,
-        totalHours: record.totalHours || 0
+        status: dbStatus
       };
       
       if (record.checkIn) payload.checkIn = new Date(record.checkIn);
       if (record.checkOut) payload.checkOut = new Date(record.checkOut);
+      if (record.totalHours !== undefined) payload.totalHours = record.totalHours;
       
       if (dbStatus === 'P' && !payload.checkIn) {
-        payload.checkIn = new Date(`${targetDate}T09:00:00.000Z`);
-        payload.checkOut = new Date(`${targetDate}T17:00:00.000Z`);
-        payload.totalHours = 8;
+        const existing = await Attendance.findOne({ student: record.studentId, date: targetDate });
+        if (existing && existing.checkIn) {
+          // Keep existing checkin/checkout
+        } else {
+          payload.checkIn = new Date(`${targetDate}T09:00:00.000Z`);
+          payload.checkOut = new Date(`${targetDate}T17:00:00.000Z`);
+          payload.totalHours = 8;
+        }
       } else if (dbStatus === 'Ab') {
         payload.checkIn = null;
         payload.checkOut = null;
