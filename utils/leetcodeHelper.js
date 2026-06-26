@@ -87,10 +87,32 @@ async function fetchExternalLeetcodeStats(username) {
   }
 }
 
+// ─── Build Platform Submission Calendar ──────────────────────────────────────
+// Converts each LMS submission's createdAt date to an IST-midnight Unix timestamp
+// (matching LeetCode's own calendar format) so platform submissions show as
+// green heatmap cells even without an external LeetCode username linked.
+function buildPlatformCalendar(submissions) {
+  const calendar = {};
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000; // UTC+5:30
+
+  submissions.forEach(sub => {
+    const raw = new Date(sub.createdAt || sub.updatedAt || Date.now());
+    // Shift to IST then zero out the time component → IST midnight in UTC
+    const istMidnight = new Date(raw.getTime() + IST_OFFSET_MS);
+    istMidnight.setUTCHours(0, 0, 0, 0);
+    // Shift back to get the UTC timestamp that represents IST midnight
+    const ts = Math.floor((istMidnight.getTime() - IST_OFFSET_MS) / 1000);
+    calendar[String(ts)] = (calendar[String(ts)] || 0) + 1;
+  });
+
+  return calendar;
+}
+
 // ─── Main Recalculation Function ─────────────────────────────────────────────
-// This merges:
-//   - External LeetCode stats (solved counts, heatmap) from LeetCode.com GraphQL
-//   - Platform streak (consecutive assigned problems solved on our LMS)
+// Merges three sources:
+//   1. External LeetCode GraphQL: real solved counts (easy/medium/hard) + external heatmap
+//   2. Platform LMS submissions: injected into the heatmap so submission days show green
+//   3. Platform streak: calculated only from LMS assigned problem submissions
 export async function recalculateLeetcodeStats(studentId) {
   try {
     const user = await User.findById(studentId);
@@ -99,22 +121,21 @@ export async function recalculateLeetcodeStats(studentId) {
     const username = user.leetcodeUsername;
     const existing = await Leetcode.findOne({ student: studentId });
 
-    // 1. Fetch external stats if we have a linked username
+    // 1. Fetch external stats (non-blocking — null if no username or API fails)
     let externalStats = null;
     if (username) {
       externalStats = await fetchExternalLeetcodeStats(username);
     }
 
-    // 2. Fall back to existing stored values if GraphQL fails
-    const easy = externalStats?.easy ?? (existing?.easy || 0);
-    const medium = externalStats?.medium ?? (existing?.medium || 0);
-    const hard = externalStats?.hard ?? (existing?.hard || 0);
+    // 2. External difficulty stats — fall back to stored values on API failure
+    const easy        = externalStats?.easy        ?? (existing?.easy        || 0);
+    const medium      = externalStats?.medium      ?? (existing?.medium      || 0);
+    const hard        = externalStats?.hard        ?? (existing?.hard        || 0);
     const totalSolved = externalStats?.totalSolved ?? (existing?.totalSolved || 0);
-    const submissionCalendar = externalStats?.submissionCalendar ?? (existing?.submissionCalendar || '{}');
     const totalActiveDays = externalStats?.totalActiveDays ?? (existing?.totalActiveDays || 0);
-    const maxStreak = externalStats?.maxStreak ?? (existing?.maxStreak || 0);
+    const maxStreak       = externalStats?.maxStreak       ?? (existing?.maxStreak       || 0);
 
-    // 3. Calculate platform-specific streak from our LMS assigned problems
+    // 3. Platform submissions — used for streak + heatmap injection
     const [submissions, problems] = await Promise.all([
       LeetcodeSubmission.find({ student: studentId }).populate('problem'),
       user.batch ? LeetcodeProblem.find({ batch: user.batch }) : []
@@ -122,13 +143,27 @@ export async function recalculateLeetcodeStats(studentId) {
     const validSubmissions = submissions.filter(s => s.problem);
     const platformStreak = calculateStreak(validSubmissions, problems);
 
-    // 4. Upsert the Leetcode document with all merged stats
+    // 4. Merge external calendar with platform submission calendar
+    //    External calendar may be empty if no username — platform calendar still works.
+    let externalCal = {};
+    try {
+      const raw = externalStats?.submissionCalendar ?? (existing?.submissionCalendar || '{}');
+      externalCal = JSON.parse(raw);
+    } catch (_) { /* ignore malformed JSON */ }
+
+    const platformCal = buildPlatformCalendar(validSubmissions);
+    const merged = { ...externalCal };
+    Object.entries(platformCal).forEach(([ts, count]) => {
+      merged[ts] = (merged[ts] || 0) + count;
+    });
+    const submissionCalendar = JSON.stringify(merged);
+
+    // 5. Upsert the Leetcode document
     const leetcodeDoc = await Leetcode.findOneAndUpdate(
       { student: studentId },
       {
         student: studentId,
         username: username || user.rollNumber || user.name,
-        // External stats
         easy,
         medium,
         hard,
@@ -136,7 +171,6 @@ export async function recalculateLeetcodeStats(studentId) {
         submissionCalendar,
         totalActiveDays,
         maxStreak,
-        // Platform streak
         streak: platformStreak,
         lastSyncedAt: new Date()
       },
