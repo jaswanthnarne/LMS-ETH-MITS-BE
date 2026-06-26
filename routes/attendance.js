@@ -99,8 +99,7 @@ router.post('/check-in', requireAuth, requireRole('student'), async (req, res) =
     {
       $setOnInsert: { batch: req.user.batch, approvedLeaveHours: leaveHours },
       checkIn: now,
-      checkInStatus: 'checked-in',
-      status: 'P'
+      checkInStatus: 'checked-in'
     },
     { upsert: true, new: true }
   );

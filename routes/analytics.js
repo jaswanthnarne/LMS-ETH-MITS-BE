@@ -109,11 +109,11 @@ router.get('/leaderboard', requireAuth, async (req, res) => {
       });
 
       // B. Leetcode scores & streaks
-      const leetcodeStreak = calculateStreak(data.leetcode);
+      const leetcodeStreak = calculateStreak(data.leetcode, leetcodeProblems);
       const leetcodeScore = data.leetcode.reduce((sum, s) => sum + (s.score || 0), 0);
 
       // C. Task scores & streaks
-      const taskStreak = calculateStreak(data.tasks);
+      const taskStreak = calculateStreak(data.tasks, tasks);
       const taskScore = data.tasks.reduce((sum, s) => sum + (s.score || 0), 0);
 
       const overallScore = taskScore + leetcodeScore + attendanceMarks + checkInMarks + (leetcodeStreak * 5) + (taskStreak * 5);

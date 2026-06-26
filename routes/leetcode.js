@@ -182,7 +182,8 @@ router.post('/problems/:id/submit', requireAuth, requireRole('student'), async (
     );
 
     const allSubs = await LeetcodeSubmission.find({ student: req.user._id });
-    const currentStreak = calculateStreak(allSubs);
+    const problems = await LeetcodeProblem.find({ batch: req.user.batch });
+    const currentStreak = calculateStreak(allSubs, problems);
     
     let leetcode = await Leetcode.findOne({ student: req.user._id });
     if (leetcode) {

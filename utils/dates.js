@@ -18,32 +18,25 @@ export function getISTDateString(date = new Date()) {
   return formatter.format(date);
 }
 
-export function calculateStreak(submissions) {
-  if (!submissions || submissions.length === 0) return 0;
+export function calculateStreak(submissions, items = []) {
+  if (!items || items.length === 0) return 0;
   
-  const dates = new Set(submissions.map(sub => {
-    return getISTDateString(new Date(sub.createdAt));
-  }));
-
-  const todayStr = getISTDateString(new Date());
+  // Sort items chronologically by creation date (oldest first)
+  const sortedItems = [...items].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
   
-  const yesterday = new Date(Date.now() - 86400000);
-  const yesterdayStr = getISTDateString(yesterday);
-
-  if (!dates.has(todayStr) && !dates.has(yesterdayStr)) {
-    return 0; // Streak is broken
-  }
-
+  const subMap = new Set(submissions.map(s => String(s.problem?._id || s.problem || s.task?._id || s.task)));
+  
   let streak = 0;
-  let current = dates.has(todayStr) ? new Date() : yesterday;
+  const now = new Date();
   
-  while (true) {
-    const curStr = getISTDateString(current);
-    if (dates.has(curStr)) {
+  for (const item of sortedItems) {
+    const hasSubmitted = subMap.has(String(item._id));
+    if (hasSubmitted) {
       streak++;
-      current.setDate(current.getDate() - 1);
     } else {
-      break;
+      if (item.dueDate && now > new Date(item.dueDate)) {
+        streak = 0; // Streak is broken
+      }
     }
   }
   return streak;
