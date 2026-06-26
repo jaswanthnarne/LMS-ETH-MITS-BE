@@ -12,8 +12,17 @@ async function approvedLeaveHours(student, dateKey) {
   const leave = await Leave.findOne({
     student,
     status: 'approved',
-    fromDate: { $lte: day },
-    $or: [{ toDate: { $gte: day } }, { toDate: null }, { toDate: { $exists: false } }]
+    $or: [
+      {
+        toDate: { $exists: true, $ne: null },
+        fromDate: { $lte: day },
+        toDate: { $gte: day }
+      },
+      {
+        $or: [{ toDate: null }, { toDate: { $exists: false } }],
+        fromDate: day
+      }
+    ]
   });
 
   if (!leave) return 0;
@@ -131,8 +140,17 @@ router.get('/logs', requireAuth, requireRole('admin'), async (req, res) => {
   const leaves = await Leave.find({
     student: { $in: students.map((s) => s._id) },
     status: 'approved',
-    fromDate: { $lte: day },
-    $or: [{ toDate: { $gte: day } }, { toDate: null }, { toDate: { $exists: false } }]
+    $or: [
+      {
+        toDate: { $exists: true, $ne: null },
+        fromDate: { $lte: day },
+        toDate: { $gte: day }
+      },
+      {
+        $or: [{ toDate: null }, { toDate: { $exists: false } }],
+        fromDate: day
+      }
+    ]
   });
   const leavesByStudent = new Map(leaves.map((l) => [String(l.student), l]));
 
@@ -143,7 +161,7 @@ router.get('/logs', requireAuth, requireRole('admin'), async (req, res) => {
       
       let attendance = record ? (record.toObject ? record.toObject() : { ...record }) : null;
       if (!attendance) {
-        let status = 'Ab';
+        let status = '';
         let checkInStatus = 'waiting';
         let approvedLeaveHrs = 0;
         if (leave) {

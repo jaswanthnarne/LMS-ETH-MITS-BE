@@ -10,8 +10,8 @@ const attendanceSchema = new mongoose.Schema(
     totalHours: { type: Number, default: 0 },
     status: {
       type: String,
-      enum: ['P', 'Ab', 'L'],
-      default: 'Ab'
+      enum: ['P', 'Ab', 'L', ''],
+      default: ''
     },
     checkInStatus: {
       type: String,

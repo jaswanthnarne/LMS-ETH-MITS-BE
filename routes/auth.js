@@ -162,8 +162,17 @@ router.get('/init', requireAuth, async (req, res) => {
             const leaves = await Leave.find({
               student: { $in: students.map(s => s._id) },
               status: 'approved',
-              fromDate: { $lte: dayObj },
-              $or: [{ toDate: { $gte: dayObj } }, { toDate: null }, { toDate: { $exists: false } }]
+              $or: [
+                {
+                  toDate: { $exists: true, $ne: null },
+                  fromDate: { $lte: dayObj },
+                  toDate: { $gte: dayObj }
+                },
+                {
+                  $or: [{ toDate: null }, { toDate: { $exists: false } }],
+                  fromDate: dayObj
+                }
+              ]
             });
             const leavesByStudent = new Map(leaves.map(l => [String(l.student), l]));
 
@@ -173,7 +182,7 @@ router.get('/init', requireAuth, async (req, res) => {
               
               let attendanceObj = record;
               if (!attendanceObj) {
-                let status = 'Ab';
+                let status = '';
                 let checkInStatus = 'waiting';
                 let approvedLeaveHrs = 0;
                 if (leave) {

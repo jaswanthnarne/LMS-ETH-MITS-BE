@@ -62,7 +62,7 @@ router.patch('/:id/review', requireAuth, requireRole('admin'), async (req, res) 
             batch: leave.batch?._id,
             date: dateKey,
             approvedLeaveHours: leave.hours,
-            status: 'Ab',
+            status: '',
             checkInStatus: 'waiting'
           });
         }
