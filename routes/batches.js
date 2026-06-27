@@ -3,6 +3,17 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import Batch from '../models/Batch.js';
 import User from '../models/User.js';
 import College from '../models/College.js';
+import Attendance from '../models/Attendance.js';
+import Grade from '../models/Grade.js';
+import Leave from '../models/Leave.js';
+import Leetcode from '../models/Leetcode.js';
+import LeetcodeProblem from '../models/LeetcodeProblem.js';
+import LeetcodeSubmission from '../models/LeetcodeSubmission.js';
+import Quiz from '../models/Quiz.js';
+import QuizAttempt from '../models/QuizAttempt.js';
+import Submission from '../models/Submission.js';
+import Task from '../models/Task.js';
+import Message from '../models/Message.js';
 
 const router = express.Router();
 
@@ -58,8 +69,36 @@ router.delete('/:id', requireAuth, requireRole('admin'), async (req, res) => {
     const batch = await Batch.findById(req.params.id);
     if (!batch) return res.status(404).json({ message: 'Batch not found' });
     
-    await User.updateMany({ batch: batch._id }, { $unset: { batch: "" } });
-    await Batch.findByIdAndDelete(req.params.id);
+    // Find all student IDs that belong to this batch
+    const studentIds = await User.find({
+      $or: [
+        { batch: batch._id },
+        { _id: { $in: batch.students || [] } }
+      ]
+    }).distinct('_id');
+
+    // Cascade delete student-specific data
+    if (studentIds.length > 0) {
+      await Promise.all([
+        User.deleteMany({ _id: { $in: studentIds } }),
+        Attendance.deleteMany({ student: { $in: studentIds } }),
+        Grade.deleteMany({ student: { $in: studentIds } }),
+        Leave.deleteMany({ student: { $in: studentIds } }),
+        Leetcode.deleteMany({ student: { $in: studentIds } }),
+        LeetcodeSubmission.deleteMany({ student: { $in: studentIds } }),
+        QuizAttempt.deleteMany({ student: { $in: studentIds } }),
+        Submission.deleteMany({ student: { $in: studentIds } })
+      ]);
+    }
+
+    // Cascade delete batch-specific data
+    await Promise.all([
+      Task.deleteMany({ batch: batch._id }),
+      Quiz.deleteMany({ batch: batch._id }),
+      LeetcodeProblem.deleteMany({ batch: batch._id }),
+      Message.deleteMany({ batch: batch._id }),
+      Batch.findByIdAndDelete(req.params.id)
+    ]);
     
     res.json({ message: 'Batch deleted successfully' });
   } catch (error) {
