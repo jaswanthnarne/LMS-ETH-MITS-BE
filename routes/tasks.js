@@ -22,8 +22,8 @@ const router = express.Router();
 router.get('/', requireAuth, async (req, res) => {
   try {
     const batchId = req.user.batch?._id || req.user.batch;
-    const query = (req.user.role === 'student' && batchId) ? { batch: batchId } : {};
-    res.json(await Task.find(query).populate({ path: 'batch', populate: { path: 'college' } }).populate('createdBy').sort('-createdAt'));
+    const query = (req.user.role === 'student' && batchId) ? { $or: [{ batch: batchId }, { batches: batchId }] } : {};
+    res.json(await Task.find(query).populate({ path: 'batch', populate: { path: 'college' } }).populate('batches').populate('createdBy').sort('-createdAt'));
   } catch (error) {
     res.status(400).json({ message: error.message });
   }
@@ -34,7 +34,14 @@ router.post('/', requireAuth, requireRole('admin'), async (req, res) => {
     if (req.body.dueDate && req.body.dueDate < todayKey()) {
       return res.status(400).json({ message: 'Due date cannot be in the past' });
     }
-    const body = { ...req.body, createdBy: req.user._id };
+    const batches = req.body.batches || (req.body.batch ? [req.body.batch] : []);
+    const batch = req.body.batch || batches[0] || null;
+    const body = { 
+      ...req.body, 
+      batches,
+      batch,
+      createdBy: req.user._id 
+    };
     if (body.dueDate) body.dueDate = dueDateEndOfDayIST(body.dueDate);
     res.status(201).json(await Task.create(body));
   } catch (error) {

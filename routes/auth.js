@@ -134,8 +134,8 @@ router.get('/init', requireAuth, async (req, res) => {
 
     // Shared list query promises
     const batchesPromise = safeQuery(Batch.find(isStudent && batchId ? { _id: batchId } : {}).populate('college').populate('students', 'name email rollNumber phone isActive academicDetails skills jobPreference otherDetails'));
-    const tasksPromise = safeQuery(Task.find(isStudent && batchId ? { batch: batchId } : {}).populate({ path: 'batch', populate: { path: 'college' } }).populate('createdBy').sort('-createdAt'));
-    const quizzesPromise = safeQuery(Quiz.find(isStudent && batchId ? { batch: batchId } : {}).sort('-createdAt'));
+    const tasksPromise = safeQuery(Task.find(isStudent && batchId ? { $or: [{ batch: batchId }, { batches: batchId }] } : {}).populate({ path: 'batch', populate: { path: 'college' } }).populate('createdBy').sort('-createdAt'));
+    const quizzesPromise = safeQuery(Quiz.find(isStudent && batchId ? { $or: [{ batch: batchId }, { batches: batchId }] } : {}).sort('-createdAt'));
     const leetcodeProblemsPromise = safeQuery(LeetcodeProblem.find(isStudent && batchId ? { batch: batchId } : {}).populate({ path: 'batch', populate: { path: 'college' } }).sort('-createdAt'));
     const collegesPromise = safeQuery(College.find({}));
 
@@ -155,28 +155,21 @@ router.get('/init', requireAuth, async (req, res) => {
         (async () => {
           try {
             const students = await User.find(match).populate('batch').select('-password').sort('name');
-            const records = await Attendance.find({ date: filterDate, student: { $in: students.map(s => s._id) } });
+            const studentIds = students.map(s => s._id);
+            const records = await Attendance.find({ date: filterDate, student: { $in: studentIds } });
             const byStudent = new Map(records.map(r => [String(r.student), r]));
 
-            const allBatchRecords = await Attendance.find({ student: { $in: students.map(s => s._id) } });
-            const statsByStudent = new Map();
-            allBatchRecords.forEach(r => {
-              const studentId = String(r.student);
-              if (!statsByStudent.has(studentId)) {
-                statsByStudent.set(studentId, { present: 0, leave: 0, absent: 0, marked: 0 });
-              }
-              const stats = statsByStudent.get(studentId);
-              if (['P', 'present'].includes(r.status)) {
-                stats.present += 1;
-                stats.marked += 1;
-              } else if (['L', 'leave'].includes(r.status)) {
-                stats.leave += 1;
-                stats.marked += 1;
-              } else if (['Ab', 'absent'].includes(r.status)) {
-                stats.absent += 1;
-                stats.marked += 1;
-              }
-            });
+            const statsResults = await Attendance.aggregate([
+              { $match: { student: { $in: studentIds } } },
+              { $group: {
+                  _id: "$student",
+                  present: { $sum: { $cond: [ { $in: ["$status", ["P", "present"]] }, 1, 0 ] } },
+                  leave: { $sum: { $cond: [ { $in: ["$status", ["L", "leave"]] }, 1, 0 ] } },
+                  absent: { $sum: { $cond: [ { $in: ["$status", ["Ab", "absent"]] }, 1, 0 ] } },
+                  marked: { $sum: { $cond: [ { $in: ["$status", ["P", "present", "L", "leave", "Ab", "absent"]] }, 1, 0 ] } }
+              } }
+            ]);
+            const statsByStudent = new Map(statsResults.map(r => [String(r._id), r]));
 
             const dayObj = new Date(`${filterDate}T00:00:00.000Z`);
             const leaves = await Leave.find({

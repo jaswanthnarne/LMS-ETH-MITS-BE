@@ -198,7 +198,14 @@ router.post('/bulk', requireAuth, requireRole('admin'), async (req, res) => {
   try {
     const { date, batchId, records } = req.body;
     const targetDate = date || todayKey();
-    const updated = [];
+    
+    // Fetch all existing attendance records for these students on targetDate in one query
+    const studentIds = records.map(r => r.studentId);
+    const existingRecords = await Attendance.find({ date: targetDate, student: { $in: studentIds } });
+    const existingMap = new Map(existingRecords.map(r => [String(r.student), r]));
+
+    const bulkOps = [];
+
     for (const record of records) {
       let dbStatus = '';
       if (record.status === 'P' || record.status === 'present') dbStatus = 'P';
@@ -215,7 +222,7 @@ router.post('/bulk', requireAuth, requireRole('admin'), async (req, res) => {
       if (record.totalHours !== undefined) payload.totalHours = record.totalHours;
       
       if (dbStatus === 'P' && !payload.checkIn) {
-        const existing = await Attendance.findOne({ student: record.studentId, date: targetDate });
+        const existing = existingMap.get(String(record.studentId));
         if (existing && existing.checkIn) {
           // Keep existing checkin/checkout
         } else {
@@ -228,14 +235,22 @@ router.post('/bulk', requireAuth, requireRole('admin'), async (req, res) => {
         payload.checkOut = null;
         payload.totalHours = 0;
       }
-      
-      const attendance = await Attendance.findOneAndUpdate(
-        { student: record.studentId, date: targetDate },
-        payload,
-        { upsert: true, new: true }
-      );
-      updated.push(attendance);
+
+      bulkOps.push({
+        updateOne: {
+          filter: { student: record.studentId, date: targetDate },
+          update: { $set: payload },
+          upsert: true
+        }
+      });
     }
+
+    if (bulkOps.length > 0) {
+      await Attendance.bulkWrite(bulkOps);
+    }
+    
+    // Fetch and return the updated records
+    const updated = await Attendance.find({ date: targetDate, student: { $in: studentIds } });
     res.json(updated);
   } catch (error) {
     res.status(400).json({ message: error.message });

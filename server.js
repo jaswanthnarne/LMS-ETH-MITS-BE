@@ -89,6 +89,38 @@ if (!process.env.VERCEL) {
         socket.on('quiz-host-update', (payload) => io.to(`batch:${payload.batch}`).emit('quiz-update', payload));
         socket.on('quiz-answer', (payload) => io.to(`quiz:${payload.quiz}`).emit('quiz-answer', payload));
         socket.on('join-quiz', (quizId) => socket.join(`quiz:${quizId}`));
+        socket.on('quiz-student-join', (payload) => {
+          socket.join(`quiz:${payload.quiz}`);
+          io.to(`quiz:${payload.quiz}`).emit('quiz-student-status', {
+            type: 'join',
+            studentId: payload.studentId,
+            studentName: payload.studentName,
+            rollNumber: payload.rollNumber
+          });
+        });
+        socket.on('quiz-student-progress', (payload) => {
+          io.to(`quiz:${payload.quiz}`).emit('quiz-student-status', {
+            type: 'progress',
+            studentId: payload.studentId,
+            progress: payload.progress
+          });
+        });
+        socket.on('quiz-student-violation', (payload) => {
+          io.to(`quiz:${payload.quiz}`).emit('quiz-student-status', {
+            type: 'violation',
+            studentId: payload.studentId,
+            studentName: payload.studentName,
+            violationType: payload.violationType,
+            count: payload.count
+          });
+        });
+        socket.on('quiz-student-submit', (payload) => {
+          io.to(`quiz:${payload.quiz}`).emit('quiz-student-status', {
+            type: 'submit',
+            studentId: payload.studentId,
+            studentName: payload.studentName
+          });
+        });
       });
 
       connectDatabase().then(() => {
