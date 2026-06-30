@@ -3,7 +3,10 @@ import User from '../models/User.js';
 
 export async function requireAuth(req, res, next) {
   try {
-    const token = req.headers.authorization?.replace('Bearer ', '');
+    let token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token && req.query.token) {
+      token = req.query.token;
+    }
     if (!token) return res.status(401).json({ message: 'Authentication required' });
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);

@@ -461,6 +461,16 @@ router.get('/:id/attempts', requireAuth, requireRole('admin'), async (req, res) 
   }
 });
 
+// ─── Reset student attempt (admin) ───
+router.delete('/:id/attempts/:attemptId', requireAuth, requireRole('admin'), async (req, res) => {
+  try {
+    await QuizAttempt.findByIdAndDelete(req.params.attemptId);
+    res.json({ success: true, message: 'Student exam attempt reset successfully' });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
 // ─── Get quiz with answers for post-exam (student) ───
 router.get('/:id/result', requireAuth, requireRole('student'), async (req, res) => {
   try {
