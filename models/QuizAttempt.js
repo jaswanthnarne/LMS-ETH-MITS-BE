@@ -11,7 +11,12 @@ const quizAttemptSchema = new mongoose.Schema(
       isCorrect: Boolean,
       timeSpent: { type: Number, default: 0 }
     }],
+    markedForReview: [Number],
     score: { type: Number, default: 0 },
+    totalMarks: { type: Number, default: 0 },
+    percentage: { type: Number, default: 0 },
+    passed: { type: Boolean, default: false },
+    startedAt: Date,
     submittedAt: Date,
     status: { type: String, enum: ['started', 'completed', 'violated'], default: 'started' },
     clientSessionId: { type: String, unique: true, sparse: true },
@@ -24,7 +29,8 @@ const quizAttemptSchema = new mongoose.Schema(
       devToolsAttempts: { type: Number, default: 0 },
       windowBlurs: { type: Number, default: 0 },
       overlaysDetected: { type: Number, default: 0 },
-      idleTimeouts: { type: Number, default: 0 }
+      idleTimeouts: { type: Number, default: 0 },
+      screenshareStopped: { type: Number, default: 0 }
     }
   },
   { timestamps: true }
